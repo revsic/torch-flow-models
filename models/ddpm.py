@@ -50,7 +50,7 @@ class DDPM(nn.Module):
         """Compute the loss from the sample.
         Args:
             sample: [FloatLike; [B, ...]], training data, `x_0`.
-            timesteps: [torch.long; [B]], target timesteps in range[0, T],
+            timesteps: [torch.long; [B]], target timesteps in range[1, T],
                 sample from uniform distribution if not provided.
             eps: [FloatLike; [B, ...]], sample from prior distribution,
                 sample from gaussian if not provided.
@@ -105,7 +105,7 @@ class DDPM(nn.Module):
         """Noise the given sample `x_0` to the `x_t` w.r.t. the timestep `t` and the noise `eps`.
         Args:
             x_0: [FloatLike; [B, ...]], the given sample, `x_0`.
-            t: [torch.long; [B]], the target timestep in range[0, T].
+            t: [torch.long; [B]], the target timestep in range[1, T].
             eps: [FloatLike; [B, ...]], the sample from the prior distribution.
         Returns:
             noised sample, `x_t`.
@@ -140,7 +140,7 @@ class DDPM(nn.Module):
             w.r.t. the current timestep `t` and the additional noise `eps`.
         Args:
             x_t: [FloatLike; [B, ...]], the given sample, `x_t`.
-            t: [torch.long; [B]], the current timestep in range[0, T].
+            t: [torch.long; [B]], the current timestep in range[1, T].
             eps: [FloatLike; [...]], the additional noise from the prior.
         Returns:
             denoised sample, `x_{t_1}`.

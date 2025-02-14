@@ -5,9 +5,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from models.ddpm import DDPM, Config as DDPMConfig
+
 
 @dataclass
-class Config:
+class Config(DDPMConfig):
     """Variance scheduler,
     Improved Denoising Diffusion Probabilistic Models, Nichol & Dhariwal, 2021.[arXiv:2102.09672]
     """
@@ -15,6 +17,9 @@ class Config:
     s: float = 0.008
     T: int = 40
     eta: float = 0.0
+    # unused
+    beta_1: float | None = None
+    beta_T: float | None = None
 
     def alphas(self) -> list[float]:
         T, s = self.T, self.s
@@ -24,6 +29,13 @@ class Config:
         schedule = ((timesteps / T + s) / (1 + s) * np.pi / 2).cos().square()
         # [T]
         return (schedule / schedule[0]).tolist()
+
+    def betas(self) -> list[float]:
+        # [T]
+        alpha_bar = torch.tensor(self.alphas(), dtype=torch.float32)
+        # [T]
+        beta = 1 - alpha_bar / F.pad(alpha_bar[:-1], [1, 0], mode="constant", value=1.0)
+        return beta.tolist()
 
     def sigmas(self) -> list[float]:
         # [T + 1]
@@ -44,23 +56,11 @@ class Config:
         return sigmas.tolist()
 
 
-class DDIM(nn.Module):
+class DDIM(DDPM):
     """Denoising Diffusion Implicit Models, Song et al., 2020.[arXiv:2010.02502]"""
 
     def __init__(self, module: nn.Module, config: Config):
-        super().__init__()
-        self.noise_estim = module
-        self.config = config
-
-    def forward(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
-        """Estimate the noise from the given x_t; t.
-        Args:
-            x_t: [FloatLike; [B, ...]] the given noised sample, `x_t`.
-            t: [torch.long; [B]], the current timestep of the noised sample in range [0, T].
-        Returns:
-            estimated noise from the given sample `x_t`.
-        """
-        return self.noise_estim(x_t, t)
+        super().__init__(module, config)
 
     def noise(
         self,
@@ -71,7 +71,7 @@ class DDIM(nn.Module):
         """Noise the given sample `x_0` to the `x_t` w.r.t. the timestep `t` and the noise `eps`.
         Args:
             x_0: [FloatLike; [B, ...]], the given sample, `x_0`.
-            t: [torch.long; [B]], the target timestep in range [0, T].
+            t: [torch.long; [B]], the target timestep in range[1, T].
             eps: [FloatLike; [B, ...]], the sample from the prior distribution.
         Returns:
             noised sample, `x_t`.
@@ -104,7 +104,7 @@ class DDIM(nn.Module):
             w.r.t. the current timestep `t` and the additional noise `eps`.
         Args:
             x_t: [FloatLike; [B, ...]], the given sample, `x_t`.
-            t: [torch.long; [B]], the current timestep in range [0, T].
+            t: [torch.long; [B]], the current timestep in range[1, T].
             eps: [FloatLike; [...]], the additional noise from the prior.
             _to: [torch.long; [B]], target timestep,
                 returns `x_{_to}` instead if given, otherwise `x_{t-1}`.
