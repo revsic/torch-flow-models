@@ -1,0 +1,8 @@
+[project]
+name = "torch-flow-models"
+version = "2025.02.13"
+requires-python = ">= 3.12.1"
+dependencies = [
+    "torch==2.6.0"
+]
+readme = "README.md"
