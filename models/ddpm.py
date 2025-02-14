@@ -6,6 +6,10 @@ import torch.nn as nn
 
 @dataclass
 class Config:
+    """Variance scheduler,
+    Denoising Diffusion Probabilistic Models, Ho et al., 2020.[arXiv:2006.11239]
+    """
+
     T: int = 1000
     beta_1: float = 1e-4
     beta_T: float = 0.02
@@ -19,6 +23,8 @@ class Config:
 
 
 class DDPM(nn.Module):
+    """Denoising Diffusion Probabilistic Models, Ho et al., 2020.[arXiv:2006.11239]"""
+
     def __init__(self, module: nn.Module, config: Config):
         super().__init__()
         self.noise_estim = module
@@ -60,14 +66,13 @@ class DDPM(nn.Module):
         # [T], zero-based
         alpha_bar = torch.cumprod(1 - beta, dim=0)
         # T
-        timesteps, = alpha_bar.shape
+        (timesteps,) = alpha_bar.shape
         # [T, ...]
         alpha_bar = alpha_bar.view([timesteps] + [1] * (x_0.dim() - 1))
         # [B, ...]
-        return (
-            alpha_bar[t - 1].sqrt().to(dtype) * x_0
-            + (1 - alpha_bar[t - 1]).sqrt().to(dtype) * eps.to(x_0)
-        )
+        return alpha_bar[t - 1].sqrt().to(dtype) * x_0 + (
+            1 - alpha_bar[t - 1]
+        ).sqrt().to(dtype) * eps.to(x_0)
 
     def denoise(
         self,
@@ -94,7 +99,7 @@ class DDPM(nn.Module):
         # [T], zero-based
         beta = torch.tensor(self.config.betas(), dtype=torch.float32, device=device)
         # T
-        timesteps, = beta.shape
+        (timesteps,) = beta.shape
         # [T, ...]
         beta = beta.view([timesteps] + [1] * (x_t.dim() - 1))
         # [T, ...], zero-based
@@ -109,7 +114,7 @@ class DDPM(nn.Module):
             * self.forward(x_t, t)
         )
         # B
-        batch_size, = t.shape
+        (batch_size,) = t.shape
         # [B, ...]
         mask = t.view([batch_size] + [1] * (x_t.dim() - 1)) > 1
         return mean + mask * beta[t - 1].sqrt().to(dtype) * eps.to(mean)
