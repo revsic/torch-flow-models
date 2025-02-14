@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Callable, Iterable
 
 import torch
 import torch.nn as nn
@@ -33,12 +34,67 @@ class DDPM(nn.Module):
     def forward(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         """Estimate the noise from the given x_t; t.
         Args:
-            x_t: [FloatLike; [B, ...]] the given noised sample, `x_t`.
-            t: [torch.long; [B]], the current timestep of the noised sample in range [0, T].
+            x_t: [FloatLike; [B, ...]], the given noised sample, `x_t`.
+            t: [torch.long; [B]], the current timestep of the noised sample in range[0, T].
         Returns:
             estimated noise from the given sample `x_t`.
         """
         return self.noise_estim(x_t, t)
+
+    def loss(
+        self,
+        sample: torch.Tensor,
+        timesteps: torch.Tensor | None = None,
+        eps: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Compute the loss from the sample.
+        Args:
+            sample: [FloatLike; [B, ...]], training data, `x_0`.
+            timesteps: [torch.long; [B]], target timesteps in range[0, T],
+                sample from uniform distribution if not provided.
+            eps: [FloatLike; [B, ...]], sample from prior distribution,
+                sample from gaussian if not provided.
+        Returns:
+            [FloatLike; []], loss value.
+        """
+        batch_size, *_ = sample.shape
+        # sample
+        if timesteps is None:
+            timesteps = torch.randint(1, self.config.T + 1, (batch_size,))
+        if eps is None:
+            eps = torch.randn_like(sample)
+        # compute objective
+        noised = self.noise(sample, timesteps, eps=eps)
+        estim = self.forward(noised, timesteps)
+        return (eps - estim).square().mean()
+
+    def sample(
+        self,
+        prior: torch.Tensor,
+        verbose: Callable[[range], Iterable] | None = None,
+        eps: list[torch.Tensor] | None = None,
+    ) -> tuple[torch.Tensor, list[torch.Tensor]]:
+        """Transfer the samples from the prior distribution to the trained distribution.
+        Args:
+            prior: [FloatLike; [B, ...]], samples from the prior distribution.
+        """
+        # assign default values
+        if verbose is None:
+            verbose = lambda x: x
+        if eps is None:
+            eps = [None] * self.config.T
+        # loop
+        x_t, x_ts = prior, []
+        bsize, *_ = x_t.shape
+        with torch.inference_mode():
+            for i in verbose(range(self.config.T, 0, -1)):
+                x_t = self.denoise(
+                    x_t,
+                    torch.full((bsize,), i, dtype=torch.long),
+                    eps=eps[i - 1],
+                )
+                x_ts.append(x_t)
+        return x_t, x_ts
 
     def noise(
         self,
@@ -49,7 +105,7 @@ class DDPM(nn.Module):
         """Noise the given sample `x_0` to the `x_t` w.r.t. the timestep `t` and the noise `eps`.
         Args:
             x_0: [FloatLike; [B, ...]], the given sample, `x_0`.
-            t: [torch.long; [B]], the target timestep in range [0, T].
+            t: [torch.long; [B]], the target timestep in range[0, T].
             eps: [FloatLike; [B, ...]], the sample from the prior distribution.
         Returns:
             noised sample, `x_t`.
@@ -84,7 +140,7 @@ class DDPM(nn.Module):
             w.r.t. the current timestep `t` and the additional noise `eps`.
         Args:
             x_t: [FloatLike; [B, ...]], the given sample, `x_t`.
-            t: [torch.long; [B]], the current timestep in range [0, T].
+            t: [torch.long; [B]], the current timestep in range[0, T].
             eps: [FloatLike; [...]], the additional noise from the prior.
         Returns:
             denoised sample, `x_{t_1}`.
