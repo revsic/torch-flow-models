@@ -5,7 +5,10 @@ import torch.nn as nn
 
 
 class RectifiedFlow(nn.Module):
-    """Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow, Liu et al., 2022.[arXiv:2209.03003]"""
+    """
+    Rectified Flow: Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow, Liu et al., 2022.[arXiv:2209.03003],
+    Flow Matching: Flow Matching for Generative Modeling, Lipman et al., 2022.[arXiv:2210.02747]
+    """
 
     def __init__(self, module: nn.Module):
         super().__init__()
