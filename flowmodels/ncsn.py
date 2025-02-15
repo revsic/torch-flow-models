@@ -24,9 +24,9 @@ class NCSNScheduler(Scheduler):
     eps: float = 2e-5
 
     def var(self) -> torch.Tensor:
-        factor = np.exp(np.log(self.sigma_L / self.sigma_1) / (self.T - 1))
-        # [T]
-        sigma = self.sigma_1 * (factor ** torch.arange(self.T, dtype=torch.float32))
+        factor = np.exp(np.log(self.sigma_1 / self.sigma_L) / (self.T - 1))
+        # [T], from sigma_L to sigma_1(reverse order)
+        sigma = self.sigma_L * (factor ** torch.arange(self.T, dtype=torch.float32))
         # [T]
         return sigma.square()
 
@@ -178,8 +178,8 @@ class AnnealedLangevinDynamicsSampler(Sampler):
         x_t, x_ts = prior, []
         bsize, *_ = x_t.shape
         with torch.inference_mode():
-            for i in verbose(range(self.scheduler.T)):
-                alpha = self.scheduler.eps * (var[i] / max(var[-1], 1e-7))
+            for i in verbose(range(self.scheduler.T, 0, -1)):
+                alpha = self.scheduler.eps * (var[i - 1] / max(var[0], 1e-7))
                 for _ in verbose(range(self.scheduler.R)):
                     score = model.score(
                         x_t,
