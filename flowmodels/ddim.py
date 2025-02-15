@@ -24,7 +24,7 @@ class DDIMScheduler(Scheduler):
         # [T]
         schedule = ((t / T + s) / (1 + s) * np.pi / 2).cos().square()
         # [T]
-        return 1 - (schedule / schedule[0])
+        return 1 - (schedule / schedule[0].clamp_min(1e-7))
 
     def sigmas(self) -> torch.Tensor:
         # [T + 1]
