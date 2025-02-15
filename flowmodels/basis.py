@@ -12,7 +12,7 @@ class ScoreModel:
             x_t: [FloatLike; [B, ...]], the given samples, `x_t`.
             t: [FloatLike; [B]], the current timesteps, in range[0, 1].
         Returns:
-            [FloatLike; [B, ...]], the estimated sten scores.
+            [FloatLike; [B, ...]], the estimated stein scores.
         """
         raise NotImplementedError("ScoreModel.score is not implemented.")
 

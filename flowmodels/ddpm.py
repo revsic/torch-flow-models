@@ -77,7 +77,7 @@ class DDPM(nn.Module, ScoreModel):
             x_t: [FloatLike; [B, ...]], the given samples, `x_t`.
             t: [FloatLike; [B]], the current timesteps, in range[0, 1].
         Returns:
-            [FloatLike; [B, ...]], the estimated sten scores.
+            [FloatLike; [B, ...]], the estimated stein scores.
         """
         # discretize in range[0, T]
         t = (t * self.scheduler.T).long()
@@ -104,7 +104,7 @@ class DDPM(nn.Module, ScoreModel):
         Args:
             sample: [FloatLike; [B, ...]], the training data, `x_0`.
             t: [FloatLike; [B]], the target timesteps in range[0, 1],
-                sample from uniform distribution if not provided.
+                sample from the uniform distribution if not provided.
             eps: [FloatLike; [B, ...]], the samples from the prior distribution,
                 sample from the gaussian if not provided.
         Returns:
