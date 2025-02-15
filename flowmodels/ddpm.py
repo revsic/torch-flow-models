@@ -5,22 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from flowmodels.basis import ScoreModel, Sampler
-
-
-@dataclass
-class Scheduler:
-    """Variance scheduler"""
-
-    T: int
-    vp: bool = True
-
-    def var(self) -> torch.Tensor:
-        """Return the variances of the discrete-time diffusion models.
-        Returns:
-            [FloatLike; [T]], list of the time-dependent variances.
-        """
-        raise NotImplementedError("Scheduler.var is not implemented.")
+from flowmodels.basis import Sampler, Scheduler, ScoreModel
 
 
 @dataclass

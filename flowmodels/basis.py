@@ -1,6 +1,22 @@
+from dataclasses import dataclass
 from typing import Callable, Iterable
 
 import torch
+
+
+@dataclass
+class Scheduler:
+    """Variance scheduler"""
+
+    T: int
+    vp: bool = True
+
+    def var(self) -> torch.Tensor:
+        """Return the variances of the discrete-time diffusion models.
+        Returns:
+            [FloatLike; [T]], list of the time-dependent variances.
+        """
+        raise NotImplementedError("Scheduler.var is not implemented.")
 
 
 class ScoreModel:

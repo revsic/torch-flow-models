@@ -5,8 +5,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from flowmodels.basis import ScoreModel, Sampler
-from flowmodels.ddpm import Scheduler
+from flowmodels.basis import Sampler, Scheduler, ScoreModel
 
 
 @dataclass
