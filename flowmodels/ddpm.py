@@ -3,10 +3,28 @@ from typing import Callable, Iterable
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+
+from flowmodels.basis import ScoreModel, Sampler
 
 
 @dataclass
-class Config:
+class Scheduler:
+    """Variance scheduler"""
+
+    T: int
+    vp: bool = True
+
+    def var(self) -> torch.Tensor:
+        """Return the variances of the discrete-time diffusion models.
+        Returns:
+            [FloatLike; [T]], list of the time-dependent variances.
+        """
+        raise NotImplementedError("Scheduler.var is not implemented.")
+
+
+@dataclass
+class DDPMScheduler(Scheduler):
     """Variance scheduler,
     Denoising Diffusion Probabilistic Models, Ho et al., 2020.[arXiv:2006.11239]
     """
@@ -22,79 +40,99 @@ class Config:
             for i in range(self.T - 1)
         ] + [self.beta_T]
 
+    def var(self) -> torch.Tensor:
+        # [T]
+        beta = torch.tensor(self.betas(), dtype=torch.float32)
+        # [T]
+        alpha_bar = (1 - beta).cumprod(dim=0)
+        return 1 - alpha_bar
 
-class DDPM(nn.Module):
+
+class DDPM(nn.Module, ScoreModel):
     """Denoising Diffusion Probabilistic Models, Ho et al., 2020.[arXiv:2006.11239]"""
 
-    def __init__(self, module: nn.Module, config: Config):
+    def __init__(self, module: nn.Module, scheduler: Scheduler):
         super().__init__()
         self.noise_estim = module
-        self.config = config
+        self.scheduler = scheduler
+        self.sampler = None
+        try:
+            self.sampler = DDPMSampler(scheduler)
+        except AssertionError:
+            pass
 
     def forward(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         """Estimate the noise from the given x_t; t.
         Args:
-            x_t: [FloatLike; [B, ...]], the given noised sample, `x_t`.
-            t: [torch.long; [B]], the current timestep of the noised sample in range[0, T].
+            x_t: [FloatLike; [B, ...]], the given noised samples, `x_t`.
+            t: [torch.long; [B]], the current timesteps of the noised sample in range[0, T].
         Returns:
             estimated noise from the given sample `x_t`.
         """
         return self.noise_estim(x_t, t)
 
+    def score(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+        """Estimate the stein score from the given samples, `x_t` w.r.t. the current timesteps `t`.
+        Args:
+            x_t: [FloatLike; [B, ...]], the given samples, `x_t`.
+            t: [FloatLike; [B]], the current timesteps, in range[0, 1].
+        Returns:
+            [FloatLike; [B, ...]], the estimated sten scores.
+        """
+        # discretize in range[0, T]
+        t = (t * self.scheduler.T).long()
+        # [B, ...]
+        estim = self.forward(x_t, t)
+        # [T + 1], one-based
+        var = F.pad(
+            self.scheduler.var().to(estim.device, torch.float32),
+            [1, 0],
+            mode="constant",
+            value=0.0,
+        )
+        # [T + 1, ...]
+        var = var.view([self.scheduler.T + 1] + [1] * (estim.dim() - 1))
+        return estim * var[t].clamp_min(1e-7).rsqrt().to(estim.dtype)
+
     def loss(
         self,
         sample: torch.Tensor,
-        timesteps: torch.Tensor | None = None,
+        t: torch.Tensor | None = None,
         eps: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Compute the loss from the sample.
         Args:
-            sample: [FloatLike; [B, ...]], training data, `x_0`.
-            timesteps: [torch.long; [B]], target timesteps in range[1, T],
+            sample: [FloatLike; [B, ...]], the training data, `x_0`.
+            t: [FloatLike; [B]], the target timesteps in range[0, 1],
                 sample from uniform distribution if not provided.
-            eps: [FloatLike; [B, ...]], sample from prior distribution,
-                sample from gaussian if not provided.
+            eps: [FloatLike; [B, ...]], the samples from the prior distribution,
+                sample from the gaussian if not provided.
         Returns:
             [FloatLike; []], loss value.
         """
         batch_size, *_ = sample.shape
         # sample
-        if timesteps is None:
-            timesteps = torch.randint(1, self.config.T + 1, (batch_size,))
+        if t is None:
+            t = torch.rand(batch_size)
         if eps is None:
             eps = torch.randn_like(sample)
+        # discretize in range [1, T]
+        t = ((t * self.scheduler.T).long() + 1).clamp_max(self.scheduler.T)
         # compute objective
-        noised = self.noise(sample, timesteps, eps=eps)
-        estim = self.forward(noised, timesteps)
+        noised = self.noise(sample, t, eps=eps)
+        estim = self.forward(noised, t)
         return (eps - estim).square().mean()
 
     def sample(
         self,
         prior: torch.Tensor,
+        steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
-        eps: list[torch.Tensor] | None = None,
-    ) -> tuple[torch.Tensor, list[torch.Tensor]]:
-        """Transfer the samples from the prior distribution to the trained distribution.
-        Args:
-            prior: [FloatLike; [B, ...]], samples from the prior distribution.
-        """
-        # assign default values
-        if verbose is None:
-            verbose = lambda x: x
-        if eps is None:
-            eps = [None] * self.config.T
-        # loop
-        x_t, x_ts = prior, []
-        bsize, *_ = x_t.shape
-        with torch.inference_mode():
-            for i in verbose(range(self.config.T, 0, -1)):
-                x_t = self.denoise(
-                    x_t,
-                    torch.full((bsize,), i, dtype=torch.long),
-                    eps=eps[i - 1],
-                )
-                x_ts.append(x_t)
-        return x_t, x_ts
+    ) -> tuple[torch.Tensor, list[torch.Tensor]] | None:
+        """Forward to the DDPMSampler."""
+        if self.sampler is None:
+            return None
+        return self.sampler.sample(self, prior, steps, verbose)
 
     def noise(
         self,
@@ -104,9 +142,9 @@ class DDPM(nn.Module):
     ) -> torch.Tensor:
         """Noise the given sample `x_0` to the `x_t` w.r.t. the timestep `t` and the noise `eps`.
         Args:
-            x_0: [FloatLike; [B, ...]], the given sample, `x_0`.
-            t: [torch.long; [B]], the target timestep in range[1, T].
-            eps: [FloatLike; [B, ...]], the sample from the prior distribution.
+            x_0: [FloatLike; [B, ...]], the given samples, `x_0`.
+            t: [torch.long; [B]], the target timesteps in range[1, T].
+            eps: [FloatLike; [B, ...]], the samples from the prior distribution.
         Returns:
             noised sample, `x_t`.
         """
@@ -118,29 +156,83 @@ class DDPM(nn.Module):
         # settings
         dtype, device = x_0.dtype, x_0.device
         # [T], zero-based
-        beta = torch.tensor(self.config.betas(), dtype=torch.float32, device=device)
-        # [T], zero-based
-        alpha_bar = torch.cumprod(1 - beta, dim=0)
-        # T
-        (timesteps,) = alpha_bar.shape
+        alpha_bar = 1 - self.scheduler.var().to(device, torch.float32)
         # [T, ...]
-        alpha_bar = alpha_bar.view([timesteps] + [1] * (x_0.dim() - 1))
-        # [B, ...]
-        return alpha_bar[t - 1].sqrt().to(dtype) * x_0 + (
-            1 - alpha_bar[t - 1]
-        ).sqrt().to(dtype) * eps.to(x_0)
+        alpha_bar = alpha_bar.view([self.scheduler.T] + [1] * (x_0.dim() - 1))
+        # [B, ...], variance-preserving scheduler
+        if self.scheduler.vp:
+            return alpha_bar[t - 1].sqrt().to(dtype) * x_0 + (
+                1 - alpha_bar[t - 1]
+            ).sqrt().to(dtype) * eps.to(x_0)
+        # variance-exploding scheduler
+        return x_0 + (1 - alpha_bar[t - 1]).sqrt().to(dtype) * eps.to(x_0)
+
+
+class DDPMSampler(Sampler):
+    """DDPM Sampler,
+    Denoising Diffusion Probabilistic Models, Ho et al., 2020.[arXiv:2006.11239]
+    """
+
+    def __init__(self, scheduler: Scheduler):
+        self.scheduler = scheduler
+        assert (
+            self.scheduler.vp
+        ), "varaince-exploding diffusion denoiser is not implemented yet."
+
+    def sample(
+        self,
+        model: ScoreModel,
+        prior: torch.Tensor,
+        steps: int | None = None,
+        verbose: Callable[[range], Iterable] | None = None,
+        eps: list[torch.Tensor] | None = None,
+    ) -> tuple[torch.Tensor, list[torch.Tensor]]:
+        """Sample from the prior distribution to the trained distribution.
+        Args:
+            prior: [FloatLike; [B, ...]], the samples from the prior distribution.
+            steps: the number of the steps.
+            verbose: whether writing the progress of the generations or not.
+        Returns:
+            [FloatLike; [B, ...]], generated samples.
+            `steps` x [FloatLike; [B, ...]], trajectories.
+        """
+        assert steps is None or steps == self.scheduler.T, "unsupported steps"
+        # assign default values
+        if verbose is None:
+            verbose = lambda x: x
+        if eps is None:
+            eps = [None] * self.scheduler.T
+        # [T, ...]
+        std = (
+            self.scheduler.var()
+            .sqrt()
+            .view([self.scheduler.T] + [1] * (prior.dim() - 1))
+        )
+        # loop
+        x_t, x_ts = prior, []
+        bsize, *_ = x_t.shape
+        with torch.inference_mode():
+            for i in verbose(range(self.scheduler.T, 0, -1)):
+                t = torch.full((bsize,), i, dtype=torch.long)
+                score = model.score(x_t, t / self.scheduler.T)
+                e_t = score * std[i - 1, None].to(score.device, score.dtype)
+                x_t = self.denoise(x_t, e_t, t, eps=eps[i - 1])
+                x_ts.append(x_t)
+        return x_t, x_ts
 
     def denoise(
         self,
         x_t: torch.Tensor,
+        e_t: torch.Tensor,
         t: torch.Tensor,
         eps: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Denoise the given sample `x_t` to the single-step backward `x_{t-1}`
             w.r.t. the current timestep `t` and the additional noise `eps`.
         Args:
-            x_t: [FloatLike; [B, ...]], the given sample, `x_t`.
-            t: [torch.long; [B]], the current timestep in range[1, T].
+            x_t: [FloatLike; [B, ...]], the given samples, `x_t`.
+            e_t: [FloatLike, [B, ...]], the estimated noise of the `x_t`.
+            t: [torch.long; [B]], the current timesteps in range[1, T].
             eps: [FloatLike; [...]], the additional noise from the prior.
         Returns:
             denoised sample, `x_{t_1}`.
@@ -153,21 +245,21 @@ class DDPM(nn.Module):
         # settings
         dtype, device = x_t.dtype, x_t.device
         # [T], zero-based
-        beta = torch.tensor(self.config.betas(), dtype=torch.float32, device=device)
-        # T
-        (timesteps,) = beta.shape
+        alpha_bar = 1 - self.scheduler.var().to(device, torch.float32)
         # [T, ...]
-        beta = beta.view([timesteps] + [1] * (x_t.dim() - 1))
+        alpha_bar = alpha_bar.view([self.scheduler.T] + [1] * (x_t.dim() - 1))
         # [T, ...], zero-based
-        alpha = 1 - beta
+        alpha = alpha_bar / F.pad(
+            alpha_bar[:-1], [0, 0] * (x_t.dim() - 1) + [1, 0], "constant", 1.0
+        )
         # [T, ...], zero-based
-        alpha_bar = torch.cumprod(alpha, dim=0)
+        beta = 1 - alpha
         # [B, ...], denoised
         mean = alpha[t - 1].clamp_min(1e-7).rsqrt().to(dtype) * (
             x_t
             - beta[t - 1].to(dtype)
             * (1 - alpha_bar[t - 1].to(dtype)).clamp_min(1e-7).rsqrt()
-            * self.forward(x_t, t)
+            * e_t
         )
         # B
         (batch_size,) = t.shape
