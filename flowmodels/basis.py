@@ -7,7 +7,7 @@ class ScoreModel:
     """Basis of the score models."""
 
     def score(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
-        """Estimate the stein score from the given samples, `x_t` w.r.t. the current timesteps `t`.
+        """Estimate the stein score from the given samples, `x_t`.
         Args:
             x_t: [FloatLike; [B, ...]], the given samples, `x_t`.
             t: [FloatLike; [B]], the current timesteps, in range[0, 1].
