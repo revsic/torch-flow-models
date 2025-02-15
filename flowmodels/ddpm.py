@@ -77,7 +77,7 @@ class DDPM(nn.Module, ScoreModel):
         )
         # [T + 1, ...]
         var = var.view([self.scheduler.T + 1] + [1] * (estim.dim() - 1))
-        return estim * var[t].clamp_min(1e-7).rsqrt().to(estim.dtype)
+        return -estim * var[t].clamp_min(1e-7).rsqrt().to(estim.dtype)
 
     def loss(
         self,
@@ -200,7 +200,7 @@ class DDPMSampler(Sampler):
             for i in verbose(range(self.scheduler.T, 0, -1)):
                 t = torch.full((bsize,), i, dtype=torch.long)
                 score = model.score(x_t, t / self.scheduler.T)
-                e_t = score * std[i - 1, None].to(score.device, score.dtype)
+                e_t = -score * std[i - 1, None].to(score.device, score.dtype)
                 x_t = self.denoise(x_t, e_t, t, eps=eps[i - 1])
                 x_ts.append(x_t)
         return x_t, x_ts
