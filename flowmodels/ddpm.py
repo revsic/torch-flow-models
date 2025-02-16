@@ -111,13 +111,12 @@ class DDPM(nn.Module, ScoreModel):
     def sample(
         self,
         prior: torch.Tensor,
-        steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]] | None:
         """Forward to the DDPMSampler."""
         if self.sampler is None:
             return None
-        return self.sampler.sample(self, prior, steps, verbose)
+        return self.sampler.sample(self, prior, verbose)
 
     def noise(
         self,
