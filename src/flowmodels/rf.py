@@ -22,7 +22,7 @@ class RectifiedFlow(nn.Module, ODEModel):
         """Estimate the causalized velocity from the given x_t; t.
         Args:
             x_t: [FloatLike; [B, ...]] the given noised sample, `x_t`.
-            t: [torch.float32; [B]], the current timestep in range[0, 1].
+            t: [FloatLike; [B]], the current timestep in range[0, 1].
         Returns:
             estimated velocity from the given sample `x_t`.
         """
@@ -47,7 +47,7 @@ class RectifiedFlow(nn.Module, ODEModel):
         """Compute the loss from the sample.
         Args:
             sample: [FloatLike; [B, ...]], training data, `X_1`.
-            t: [torch.float32; [B]], target timesteps in range[0, 1],
+            t: [FloatLike; [B]], target timesteps in range[0, 1],
                 sample from uniform distribution if not provided.
             src: [FloatLike; [B, ...]], sample from the source distribution, `X_0`,
                 sample from gaussian if not provided.
