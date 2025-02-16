@@ -4,7 +4,52 @@ import torch
 import torch.nn.functional as F
 
 from flowmodels.basis import Scheduler, ScoreModel
-from flowmodels.ode import ODESolver
+from flowmodels.ode import ODEModel, ODESolver
+
+
+class DiscretizedProbabilityFlowODE(ODEModel, ScoreModel):
+    """Converter from discretized score model to probability flow ODE,
+    Score-Based Generative Modeling Through Stochastic Differential Equations, Song et al., 2021.[arXiv:2011.13456]
+    """
+
+    def __init__(self, model: ScoreModel, scheduler: Scheduler):
+        self.score_model = model
+        self.scheduler = scheduler
+        assert self.scheduler.vp, "variance-exploding scheduler is not supported yet."
+
+    def score(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+        """Estimate the stein score from the given samples, `x_t`.
+        Args:
+            x_t: [FloatLike; [B, ...]], the given samples, `x_t`.
+            t: [FloatLike; [B]], the current timesteps, in range[0, 1].
+        Returns:
+            [FloatLike; [B, ...]], the estimated stein scores.
+        """
+        return self.score_model.score(x_t, t)
+
+    def velocity(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+        """Estimate the velocity of the given samples, `x_t`.
+        Args:
+            x_t: [FloatLike; [B, ...]], the given samples, `x_t`.
+            t: [FloatLike; [B]], the current timesteps, in range[0, 1].
+        Returns:
+            [FloatLike; [B, ...]], the estimated velocity.
+        """
+        # [B, ...]
+        score = self.score(x_t, t)
+        # [T, ...]
+        alpha_bar = (1 - self.scheduler.var()).view(
+            [self.scheduler.T] + [1] * (x_t.dim() - 1)
+        )
+        # [T, ...]
+        beta = 1 - alpha_bar / F.pad(
+            alpha_bar[:-1], [0, 0] * (x_t.dim() - 1) + [1, 0], "constant", 1.0
+        )
+        # discretize in range[0, T]
+        t = (t * self.scheduler.T).long()
+        # zero-based
+        t = (t - 1).clamp_min(0)
+        return 0.5 * beta[t] * (x_t + score)
 
 
 class DiscretizedProbabilityFlowODESolver(ODESolver):
@@ -17,7 +62,7 @@ class DiscretizedProbabilityFlowODESolver(ODESolver):
 
     def solve(
         self,
-        model: ScoreModel,
+        model: ODEModel,
         init: torch.Tensor,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
@@ -32,6 +77,9 @@ class DiscretizedProbabilityFlowODESolver(ODESolver):
             [FloatLike; [B, ...]], the solution.
             `steps` x [FloatLike; [B, ...]], trajectories.
         """
+        assert isinstance(
+            model, DiscretizedProbabilityFlowODE
+        ), "supports only models typed `DiscretizedProbabilityFlowODE`"
         # variance preserving
         if self.scheduler.vp:
             return self._solve_variance_preserving_score_model(
@@ -50,7 +98,7 @@ class DiscretizedProbabilityFlowODESolver(ODESolver):
 
     def _solve_variance_preserving_score_model(
         self,
-        model: ScoreModel,
+        model: DiscretizedProbabilityFlowODE,
         init: torch.Tensor,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
@@ -94,7 +142,7 @@ class DiscretizedProbabilityFlowODESolver(ODESolver):
 
     def _solve_variance_exploding_score_model(
         self,
-        model: ScoreModel,
+        model: DiscretizedProbabilityFlowODE,
         init: torch.Tensor,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
