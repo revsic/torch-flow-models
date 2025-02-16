@@ -52,7 +52,7 @@ sampled, trajectory = model.sample(torch.randn(...))
     - Examples: [samples/ddpm.ipynb](./samples/ddpm.ipynb), 4. Test the model
 - Rectified Flow[[arXiv:2209.03003](https://arxiv.org/abs/2209.03003)]: Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow, Liu et al., 2022.
     - Imports: `RectifiedFlow`, `VanillaEulerSolver`
-    - Examples: TBD
+    - Examples: [samples/rf.ipynb](./samples/rf.ipynb)
 - InstaFlow[[arXiv:2309.06380](https://arxiv.org/abs/2309.06380)]: One Step is Enough for High-Quality Diffusion-Based Text-to-Image Generation, Liu et al., 2023.
     - Imports: `InstaFlow`
     - Examples: TBD
