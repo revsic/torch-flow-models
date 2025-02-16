@@ -1,10 +1,12 @@
 from dataclasses import dataclass
+from typing import Protocol
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 
-from flowmodels.ddpm import DDPMSampler, Scheduler
+from flowmodels.basis import Scheduler, SchedulerProtocol
+from flowmodels.ddpm import DDPMSampler
 
 
 @dataclass
@@ -39,10 +41,19 @@ class DDIMScheduler(Scheduler):
         )
 
 
+class DDIMSamplerSupports(SchedulerProtocol, Protocol):
+    def sigmas(self) -> torch.Tensor:
+        """Stochasity controller.
+        Returns:
+            list of standard deviations that controlls the stochasity.
+        """
+        ...
+
+
 class DDIMSampler(DDPMSampler):
     """Denoising Diffusion Implicit Models, Song et al., 2020.[arXiv:2010.02502]"""
 
-    def __init__(self, scheduler: DDIMScheduler):
+    def __init__(self, scheduler: DDIMSamplerSupports):
         self.scheduler = scheduler
 
     def denoise(

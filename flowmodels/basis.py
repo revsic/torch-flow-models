@@ -1,12 +1,16 @@
 from dataclasses import dataclass
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Protocol
 
 import torch
 
 
 @dataclass
 class Scheduler:
-    """Variance scheduler"""
+    """Variance schedule.
+    Attributes:
+        T: the number of the sampling iterations.
+        vp: whether the scheduler is for variance-preserving score model or variance-exploding score model.
+    """
 
     T: int
     vp: bool = True
@@ -17,6 +21,20 @@ class Scheduler:
             [FloatLike; [T]], list of the time-dependent variances.
         """
         raise NotImplementedError("Scheduler.var is not implemented.")
+
+
+class SchedulerProtocol(Protocol):
+    """Protocol for variance scheduler."""
+
+    T: int
+    vp: bool
+
+    def var(self) -> torch.Tensor:
+        """Return the variances of the discrete-time diffusion models.
+        Returns:
+            [FloatLike; [T]], list of the time-dependent variances.
+        """
+        ...
 
 
 class ScoreModel:

@@ -1,11 +1,11 @@
 from dataclasses import dataclass
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Protocol, runtime_checkable
 
 import numpy as np
 import torch
 import torch.nn as nn
 
-from flowmodels.basis import Sampler, Scheduler, ScoreModel
+from flowmodels.basis import Sampler, Scheduler, SchedulerProtocol, ScoreModel
 
 
 @dataclass
@@ -40,7 +40,9 @@ class NCSN(nn.Module, ScoreModel):
         assert (
             not self.scheduler.vp
         ), "variance-preserving diffusion scheduler is not implemented yet."
-        self.sampler = AnnealedLangevinDynamicsSampler(scheduler)
+        self.sampler = None
+        if isinstance(scheduler, AnnealedLangevinDynamicsSamplerSupports):
+            self.sampler = AnnealedLangevinDynamicsSampler(scheduler)
 
     def forward(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         """Estimate the gradient of the log-likelihood(Stein Score) from the given x_t; t.
@@ -103,11 +105,10 @@ class NCSN(nn.Module, ScoreModel):
     def sample(
         self,
         prior: torch.Tensor,
-        steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]] | None:
         """Forward to the DDPMSampler."""
-        return self.sampler.sample(self, prior, steps, verbose)
+        return self.sampler.sample(self, prior, verbose)
 
     def noise(
         self,
@@ -136,12 +137,18 @@ class NCSN(nn.Module, ScoreModel):
         return x_0 + sigma[t - 1] * eps.to(x_0)
 
 
+@runtime_checkable
+class AnnealedLangevinDynamicsSamplerSupports(SchedulerProtocol, Protocol):
+    R: int
+    eps: float
+
+
 class AnnealedLangevinDynamicsSampler(Sampler):
     """Annealed Langevin Dynamics Sampler from NCSN,
     Generative Modeling By Estimating Gradients of the Data Distribution, Song et al., 2019.[arXiv:1907.05600]
     """
 
-    def __init__(self, scheduler: Scheduler):
+    def __init__(self, scheduler: AnnealedLangevinDynamicsSamplerSupports):
         self.scheduler = scheduler
         assert (
             not self.scheduler.vp
