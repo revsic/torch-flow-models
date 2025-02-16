@@ -59,8 +59,6 @@ class DDIMSampler(DDPMSampler):
             e_t: [FloatLike; [B, ...]], the estimated noise of the `x_t`.
             t: [torch.long; [B]], the current timestep in range[1, T].
             eps: [FloatLike; [...]], the additional noise from the prior.
-            _to: [torch.long; [B]], target timestep,
-                returns `x_{_to}` instead if given, otherwise `x_{t-1}`.
         Returns:
             denoised sample, `x_{t_1}`.
         """

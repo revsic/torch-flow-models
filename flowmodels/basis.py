@@ -55,17 +55,15 @@ class Sampler:
         self,
         model: ScoreModel,
         prior: torch.Tensor,
-        steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """Sample from the prior distribution to the trained distribution.
         Args:
             model: the score estimation model.
             prior: [FloatLike; [B, ...]], the samples from the prior distribution.
-            steps: the number of the steps.
             verbose: whether writing the progress of the generations or not.
         Returns:
             [FloatLike; [B, ...]], generated samples.
-            `steps` x [FloatLike; [B, ...]], trajectories.
+            `T` x [FloatLike; [B, ...]], trajectories.
         """
         raise NotImplementedError("Sampler.sample is not implemented.")

@@ -168,20 +168,17 @@ class DDPMSampler(Sampler):
         self,
         model: ScoreModel,
         prior: torch.Tensor,
-        steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
         eps: list[torch.Tensor] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """Sample from the prior distribution to the trained distribution.
         Args:
             prior: [FloatLike; [B, ...]], the samples from the prior distribution.
-            steps: the number of the steps.
             verbose: whether writing the progress of the generations or not.
         Returns:
             [FloatLike; [B, ...]], generated samples.
-            `steps` x [FloatLike; [B, ...]], trajectories.
+            `T` x [FloatLike; [B, ...]], trajectories.
         """
-        assert steps is None or steps == self.scheduler.T, "unsupported steps"
         # assign default values
         if verbose is None:
             verbose = lambda x: x

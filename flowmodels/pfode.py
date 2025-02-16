@@ -26,7 +26,7 @@ class DiscretizedProbabilityFlowODESolver(ODESolver):
         Args:
             model: the discretized score estimation model.
             init: [FloatLike; [B, ...]], starting point of the ODE.
-            steps: the number of the steps, default 100 iterations.
+            steps: the number of the steps.
             verbose: whether writing the progress of the generations or not.
         Returns:
             [FloatLike; [B, ...]], the solution.
@@ -59,7 +59,7 @@ class DiscretizedProbabilityFlowODESolver(ODESolver):
         Args:
             model: the discretized time-preserving score estimation model.
             init: [FloatLike; [B, ...]], starting point of the ODE.
-            steps: the number of the steps, default 100 iterations.
+            steps: the number of the steps.
             verbose: whether writing the progress of the generations or not.
         Returns:
             [FloatLike; [B, ...]], the solution.
@@ -103,7 +103,7 @@ class DiscretizedProbabilityFlowODESolver(ODESolver):
         Args:
             model: the discretized variance-exploding score estimation model.
             init: [FloatLike; [B, ...]], starting point of the ODE.
-            steps: the number of the steps, default 100 iterations.
+            steps: the number of the steps.
             verbose: whether writing the progress of the generations or not.
         Returns:
             [FloatLike; [B, ...]], the solution.
