@@ -42,7 +42,7 @@ sampled, trajectory = model.sample(torch.randn(...))
     - Examples: [samples/ddpm.ipynb](./samples/ddpm.ipynb), 4. Test the model
 - NCSN[[arXiv:1907.05600](https://arxiv.org/abs/1907.05600)]: Generative Modeling by Estimating Gradients of the Data Distribution, Song & Ermon, 2019.
     - Imports: `NCSN`, `NCSNScheduler`, `AnnealedLangevinDynamicsSampler`
-    - Examples: TBD
+    - Examples: [samples/ncsn.ipynb](./samples/ncsn.ipynb)
 - VPSDE, VESDE[[arXiv:2011.13456](https://arxiv.org/abs/2011.13456)]: Score-Based Generative Modeling through Stochastic Differential Equations, Song et al., 2020.
     - Imports: `VPSDE`, `VPSDEAncestralSampler`, `VPSDEScheduler`
     - Imports: `VESDE`, `VESDEAncestralSampler`, `VESDEScheduler`
