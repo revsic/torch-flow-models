@@ -108,7 +108,7 @@ class NCSN(nn.Module, ScoreModel):
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]] | None:
         """Forward to the DDPMSampler."""
-        return self.sampler.sample(self, prior, verbose)
+        return self.sampler.sample(self, prior, verbose=verbose)
 
     def noise(
         self,
@@ -158,18 +158,21 @@ class AnnealedLangevinDynamicsSampler(Sampler):
         self,
         model: ScoreModel,
         prior: torch.Tensor,
+        steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
         eps: list[torch.Tensor] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """Transfer the samples from the prior distribution to the trained distribution.
         Args:
             prior: [FloatLike; [B, ...]], samples from the prior distribution.
+            steps: the number of the sampling steps.
             verbose: whether writing the progress of the generations or not.
         Returns:
             [FloatLike; [B, ...]], generated samples.
             `T` x [FloatLike; [B, ...]], trajectories.
         """
         total = self.scheduler.T * self.scheduler.R
+        assert steps is None or steps == total
         # assign default values
         if verbose is None:
             verbose = lambda x: x

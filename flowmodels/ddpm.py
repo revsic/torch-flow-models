@@ -116,7 +116,7 @@ class DDPM(nn.Module, ScoreModel):
         """Forward to the DDPMSampler."""
         if self.sampler is None:
             return None
-        return self.sampler.sample(self, prior, verbose)
+        return self.sampler.sample(self, prior, verbose=verbose)
 
     def noise(
         self,
@@ -167,17 +167,20 @@ class DDPMSampler(Sampler):
         self,
         model: ScoreModel,
         prior: torch.Tensor,
+        steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
         eps: list[torch.Tensor] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """Sample from the prior distribution to the trained distribution.
         Args:
             prior: [FloatLike; [B, ...]], the samples from the prior distribution.
+            steps: the number of the sampling steps, forced to match scheduler.
             verbose: whether writing the progress of the generations or not.
         Returns:
             [FloatLike; [B, ...]], generated samples.
             `T` x [FloatLike; [B, ...]], trajectories.
         """
+        assert steps is None or steps == self.scheduler.T
         # assign default values
         if verbose is None:
             verbose = lambda x: x

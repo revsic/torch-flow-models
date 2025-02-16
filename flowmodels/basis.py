@@ -133,12 +133,14 @@ class Sampler:
         self,
         model: ScoreModel,
         prior: torch.Tensor,
+        steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """Sample from the prior distribution to the trained distribution.
         Args:
             model: the score estimation model.
             prior: [FloatLike; [B, ...]], the samples from the prior distribution.
+            steps: the number of the sampling steps.
             verbose: whether writing the progress of the generations or not.
         Returns:
             [FloatLike; [B, ...]], generated samples.
