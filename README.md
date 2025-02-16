@@ -46,7 +46,7 @@ sampled, trajectory = model.sample(torch.randn(...))
 - VPSDE, VESDE[[arXiv:2011.13456](https://arxiv.org/abs/2011.13456)]: Score-Based Generative Modeling through Stochastic Differential Equations, Song et al., 2020.
     - Imports: `VPSDE`, `VPSDEAncestralSampler`, `VPSDEScheduler`
     - Imports: `VESDE`, `VESDEAncestralSampler`, `VESDEScheduler`
-    - Examples: TBD
+    - Examples: [samples/vpsde.ipynb](./samples/vpsde.ipynb), [samples/vesde.ipynb](./samples/vesde.ipynb)
 - PF-ODE[[arXiv:2011.13456](https://arxiv.org/abs/2011.13456)]: Score-Based Generative Modeling through Stochastic Differential Equations, Song et al., 2020.
     - Imports: `ProbabilityFlowODESampler`
     - Examples: [samples/ddpm.ipynb](./samples/ddpm.ipynb), 4. Test the model
