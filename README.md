@@ -56,3 +56,6 @@ sampled, trajectory = model.sample(torch.randn(...))
 - InstaFlow[[arXiv:2309.06380](https://arxiv.org/abs/2309.06380)]: One Step is Enough for High-Quality Diffusion-Based Text-to-Image Generation, Liu et al., 2023.
     - Imports: `InstaFlow`
     - Examples: [samples/instaflow.ipynb](./samples/instaflow.ipynb)
+- Shortcut Model[[arXiv:2410.12557](https://arxiv.org/abs/2410.12557)]: One Step Diffusion via Shortcut Models, Frans et al., 2024.
+    - Imports: `ShortcutModel`, `ShortcutEulerSolver`
+    - Examples: [samples/shortcut.ipynb](./samples/shortcut.ipynb)
