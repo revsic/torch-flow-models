@@ -3,7 +3,8 @@ from typing import Callable, Iterable
 import torch
 import torch.nn as nn
 
-from flowmodels.ode import ODEModel, VanillaEulerSolver
+from flowmodels.basis import ODEModel
+from flowmodels.euler import VanillaEulerSolver
 
 
 class RectifiedFlow(nn.Module, ODEModel):

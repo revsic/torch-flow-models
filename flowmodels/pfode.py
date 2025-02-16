@@ -3,8 +3,7 @@ from typing import Callable, Iterable
 import torch
 import torch.nn.functional as F
 
-from flowmodels.basis import Scheduler, ScoreModel
-from flowmodels.ode import ODEModel, ODESolver
+from flowmodels.basis import ODEModel, ODESolver, Scheduler, ScoreModel
 
 
 class DiscretizedProbabilityFlowODE(ODEModel, ScoreModel):
