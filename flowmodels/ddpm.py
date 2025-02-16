@@ -40,11 +40,9 @@ class DDPM(nn.Module, ScoreModel):
         super().__init__()
         self.noise_estim = module
         self.scheduler = scheduler
-        self.sampler = None
-        try:
-            self.sampler = DDPMSampler(scheduler)
-        except AssertionError:
-            pass
+        assert self.scheduler.vp, "unsupported scheduler; variance-exploding scheduler"
+
+        self.sampler = DDPMSampler(scheduler)
 
     def forward(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         """Estimate the noise from the given x_t; t.
@@ -112,10 +110,8 @@ class DDPM(nn.Module, ScoreModel):
         self,
         prior: torch.Tensor,
         verbose: Callable[[range], Iterable] | None = None,
-    ) -> tuple[torch.Tensor, list[torch.Tensor]] | None:
+    ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """Forward to the DDPMSampler."""
-        if self.sampler is None:
-            return None
         return self.sampler.sample(self, prior, verbose=verbose)
 
     def noise(
@@ -159,9 +155,7 @@ class DDPMSampler(Sampler):
 
     def __init__(self, scheduler: Scheduler):
         self.scheduler = scheduler
-        assert (
-            self.scheduler.vp
-        ), "varaince-exploding diffusion denoiser is not implemented yet."
+        assert self.scheduler.vp, "unsupported scheduler; variance-exploding scheduler"
 
     def sample(
         self,

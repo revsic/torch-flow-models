@@ -55,6 +55,7 @@ class DDIMSampler(DDPMSampler):
 
     def __init__(self, scheduler: DDIMSamplerSupports):
         self.scheduler = scheduler
+        assert self.scheduler.vp, "unsupported scheduler; variance-exploding scheduler"
 
     def denoise(
         self,

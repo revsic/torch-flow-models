@@ -39,7 +39,8 @@ class NCSN(nn.Module, ScoreModel):
         self.scheduler = scheduler
         assert (
             not self.scheduler.vp
-        ), "variance-preserving diffusion scheduler is not implemented yet."
+        ), "unsupported scheduler; variance-preserving scheduler"
+
         self.sampler = None
         if isinstance(scheduler, AnnealedLangevinDynamicsSamplerSupports):
             self.sampler = AnnealedLangevinDynamicsSampler(scheduler)
@@ -108,6 +109,8 @@ class NCSN(nn.Module, ScoreModel):
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]] | None:
         """Forward to the DDPMSampler."""
+        if self.sampler is None:
+            return None
         return self.sampler.sample(self, prior, verbose=verbose)
 
     def noise(
@@ -152,7 +155,7 @@ class AnnealedLangevinDynamicsSampler(Sampler):
         self.scheduler = scheduler
         assert (
             not self.scheduler.vp
-        ), "varaince-preserving diffusion scheduler is not implemented yet."
+        ), "unsupported scheduler; variance-preserving scheduler"
 
     def sample(
         self,

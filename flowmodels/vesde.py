@@ -100,7 +100,7 @@ class VESDE(nn.Module, ScoreModel):
         prior: torch.Tensor,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
-    ) -> tuple[torch.Tensor, list[torch.Tensor]] | None:
+    ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """Forward to the DDPMSampler."""
         return self.sampler.sample(self, prior, steps, verbose=verbose)
 
@@ -143,6 +143,9 @@ class VESDEAncestralSampler(Sampler):
     def __init__(self, scheduler: ContinuousScheduler):
         super().__init__()
         self.scheduler = scheduler
+        assert (
+            not self.scheduler.vp
+        ), "unsupported scheduler; variance-preserving scheduler"
 
     def sample(
         self,
@@ -162,9 +165,6 @@ class VESDEAncestralSampler(Sampler):
             [FloatLike; [B, ...]], generated samples.
             `T` x [FloatLike; [B, ...]], trajectories.
         """
-        assert (
-            not self.scheduler.vp
-        ), "unsupported scheduler; variance-preserving scheduler"
         # assign default values
         steps = steps or self.DEFAULT_STEPS
         if verbose is None:
