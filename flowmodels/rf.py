@@ -73,7 +73,7 @@ class RectifiedFlow(nn.Module, ODEModel):
     def sample(
         self,
         src: torch.Tensor,
-        steps: int = 10,
+        steps: int = 1,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """Transfer the samples from the prior distribution to the trained distribution, using vanilla Euler method.
@@ -82,3 +82,63 @@ class RectifiedFlow(nn.Module, ODEModel):
             steps: the number of the steps.
         """
         return self.solver.solve(self, src, steps, verbose)
+
+    def distillation(
+        self,
+        optim: torch.optim.Optimizer,
+        src: torch.Tensor,
+        training_steps: int,
+        batch_size: int,
+        sample: torch.Tensor | int = 1000,
+        verbose: Callable[[range], Iterable] | None = None,
+    ):
+        """Distillation for single-step generation."""
+        return self.reflow(
+            optim=optim,
+            src=src,
+            training_steps=training_steps,
+            batch_size=batch_size,
+            sample=sample,
+            timesteps=torch.zeros(batch_size, dtype=src.dtype, device=src.device),
+            verbose=verbose,
+        )
+
+    def reflow(
+        self,
+        optim: torch.optim.Optimizer,
+        src: torch.Tensor,
+        training_steps: int,
+        batch_size: int,
+        sample: torch.Tensor | int = 1000,
+        timesteps: Callable[[], torch.Tensor] | torch.Tensor | None = None,
+        verbose: Callable[[range], Iterable] | None = None,
+    ):
+        """Optimize the model with the reflow-procedure.
+        Args:
+            optim: optimizer constructed with `self.parameters()`.
+            src: [FloatLike; [D, ...]], samples from the source distribution, `X_0`.
+            training_steps: the number of the training steps.
+            batch_size: the size of the batch.
+            sample: [FloatLike; [D, ...]], corresponding samples transfered from `src`,
+                sample just-in-time if given is integer (assume as the number of the steps for sampling iterations).
+        """
+        if isinstance(sample, int):
+            with torch.inference_mode():
+                sample, _ = self.sample(src, sample, verbose)
+
+        losses = []
+        self.train()
+        for i in verbose(range(training_steps)):
+            indices = torch.randint(0, len(sample), (batch_size,))
+            t = timesteps
+            if callable(timesteps):
+                t = timesteps()
+            loss = self.loss(sample[indices], t=t, src=src[indices])
+            # update
+            optim.zero_grad()
+            loss.backward()
+            optim.step()
+            # log
+            losses.append(loss.detach().item())
+
+        return losses
