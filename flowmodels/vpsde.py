@@ -103,7 +103,7 @@ class VPSDE(nn.Module, ScoreModel):
         noised = self.noise(sample, t, eps=eps)
         estim = self.forward(noised, t)
         # [B], zero-based
-        sigma = self.scheduler.var(t).sqrt().to(estim)
+        sigma = self.scheduler.var(t).clamp(1e-10, 1.0).sqrt().to(estim)
         # [B, ...]
         sigma = sigma.view([bsize] + [1] * (sample.dim() - 1))
         # [B, ...], apply `\lambda(\sigma) = \sigma^2`

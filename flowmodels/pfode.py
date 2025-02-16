@@ -4,6 +4,7 @@ import torch
 import torch.nn.functional as F
 
 from flowmodels.basis import ContinuousScheduler, Sampler, Scheduler, ScoreModel
+from flowmodels.vpsde import VPSDEAncestralSamplerSupports
 
 
 class ProbabilityFlowODESampler(Sampler):
@@ -85,8 +86,12 @@ class ProbabilityFlowODESampler(Sampler):
         alpha_bar = 1 - self._discretized_var(steps)
         # T
         (T,) = alpha_bar.shape
-        # [T]
-        beta = 1 - alpha_bar / F.pad(alpha_bar[:-1], [1, 0], "constant", 1.0)
+        if isinstance(self.scheduler, VPSDEAncestralSamplerSupports):
+            _t = torch.arange(1, T + 1, dtype=torch.float32) / T
+            beta = self.scheduler.betas(_t) / T
+        else:
+            # [T]
+            beta = 1 - alpha_bar / F.pad(alpha_bar[:-1], [1, 0], "constant", 1.0)
         x_t, x_ts = prior, []
         with torch.inference_mode():
             for t in verbose(range(T, 0, -1)):
