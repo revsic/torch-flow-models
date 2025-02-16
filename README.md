@@ -55,4 +55,4 @@ sampled, trajectory = model.sample(torch.randn(...))
     - Examples: [samples/rf.ipynb](./samples/rf.ipynb)
 - InstaFlow[[arXiv:2309.06380](https://arxiv.org/abs/2309.06380)]: One Step is Enough for High-Quality Diffusion-Based Text-to-Image Generation, Liu et al., 2023.
     - Imports: `InstaFlow`
-    - Examples: TBD
+    - Examples: [samples/instaflow.ipynb](./samples/instaflow.ipynb)
