@@ -42,6 +42,7 @@ class DDIMScheduler(Scheduler):
 
 
 class DDIMSamplerSupports(SchedulerProtocol, Protocol):
+
     def sigmas(self) -> torch.Tensor:
         """Stochasity controller.
         Returns:

@@ -53,8 +53,8 @@ class InstaFlow(RectifiedFlow):
         training_steps: int,
         batch_size: int,
         sample: torch.Tensor | int = 1000,
-        loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] = F.mse_loss,
         verbose: Callable[[range], Iterable] | None = None,
+        loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] = F.mse_loss,
     ):
         """Distillation for single-step generation.
         Args:
@@ -69,6 +69,9 @@ class InstaFlow(RectifiedFlow):
         if isinstance(sample, int):
             with torch.inference_mode():
                 sample, _ = self.sample(src, sample, verbose)
+
+        if verbose is None:
+            verbose = lambda x: x
 
         t = torch.zeros(batch_size, dtype=sample.dtype, device=sample.device)
 

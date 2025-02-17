@@ -2,7 +2,7 @@ from typing import Callable, Iterable
 
 import torch
 
-from flowmodels.basis import ODEModel, ODESolver
+from flowmodels.basis import ODESolver, VelocitySupports
 
 
 class VanillaEulerSolver(ODESolver):
@@ -12,7 +12,7 @@ class VanillaEulerSolver(ODESolver):
 
     def solve(
         self,
-        model: ODEModel,
+        model: VelocitySupports,
         init: torch.Tensor,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,

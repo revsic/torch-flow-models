@@ -3,7 +3,7 @@ from typing import Callable, Iterable
 import torch
 import torch.nn.functional as F
 
-from flowmodels.basis import ContinuousScheduler, Sampler, Scheduler, ScoreModel
+from flowmodels.basis import ContinuousScheduler, Sampler, Scheduler, ScoreSupports
 
 
 class MultistepConsistencySampling(Sampler):
@@ -15,7 +15,7 @@ class MultistepConsistencySampling(Sampler):
 
     def sample(
         self,
-        model: ScoreModel,
+        model: ScoreSupports,
         prior: torch.Tensor,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
@@ -45,8 +45,9 @@ class MultistepConsistencySampling(Sampler):
             case ContinuousScheduler():
                 steps = steps or self.DEFAULT_STEPS
                 # [T], in range[1/T, 1]
-                steps = torch.arange(1, steps + 1, dtype=torch.float32) / steps
-                var = self.scheduler.var(steps)
+                var = self.scheduler.var(
+                    torch.arange(1, steps + 1, dtype=torch.float32) / steps
+                )
         # single-step sampler
         batch_size, *_ = prior.shape
         if steps <= 1:
@@ -56,9 +57,11 @@ class MultistepConsistencySampling(Sampler):
             return x_0, [x_0]
         # multi-step sampler
         x_t, x_ts = prior, []
+        if verbose is None:
+            verbose = lambda x: x
         # [T + 1], one-based
         var = F.pad(var, [1, 0], mode="constant", value=1e-8)
-        for t in range(steps, 0, -1):
+        for t in verbose(range(steps, 0, -1)):
             # [B], [B]
             v_t_d, v_t = var[t - 1 : t + 1, None].repeat(1, batch_size)
             # [B, ...]
@@ -74,7 +77,7 @@ class MultistepConsistencySampling(Sampler):
 
     def _denoise(
         self,
-        model: ScoreModel,
+        model: ScoreSupports,
         x_t: torch.Tensor,
         t: torch.Tensor,
         var: torch.Tensor,

@@ -126,13 +126,14 @@ class RectifiedFlow(nn.Module, ODEModel):
             with torch.inference_mode():
                 sample, _ = self.sample(src, sample, verbose)
 
+        if verbose is None:
+            verbose = lambda x: x
+
         losses = []
         self.train()
         for i in verbose(range(training_steps)):
             indices = torch.randint(0, len(sample), (batch_size,))
-            t = timesteps
-            if callable(timesteps):
-                t = timesteps()
+            t = timesteps() if callable(timesteps) else timesteps
             loss = self.loss(sample[indices], t=t, src=src[indices])
             # update
             optim.zero_grad()

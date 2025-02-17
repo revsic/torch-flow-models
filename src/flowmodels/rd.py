@@ -5,13 +5,19 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from flowmodels.basis import ContinuousScheduler, ScoreModel, Scheduler
+from flowmodels.basis import (
+    ContinuousScheduler,
+    ForwardProcessSupports,
+    ScoreModel,
+    ScoreSupports,
+    Scheduler,
+)
 from flowmodels.cm import MultistepConsistencySampling
 from flowmodels.pfode import ProbabilityFlowODESampler
 
 
 @runtime_checkable
-class ScoreModelProtocol(Protocol):
+class ScoreModelProtocol(ScoreSupports, ForwardProcessSupports, Protocol):
     scheduler: ContinuousScheduler | Scheduler
 
     def forward(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
@@ -24,46 +30,21 @@ class ScoreModelProtocol(Protocol):
         """
         ...
 
-    def score(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
-        """Estimate the stein score from the given samples, `x_t`.
-        Args:
-            x_t: [FloatLike; [B, ...]], the given samples, `x_t`.
-            t: [FloatLike; [B]], the current timesteps, in range[0, 1].
-        Returns:
-            [FloatLike; [B, ...]], the estimated stein scores.
-        """
-
     def loss(
         self,
         sample: torch.Tensor,
         t: torch.Tensor | None = None,
-        eps: torch.Tensor | None = None,
+        prior: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Compute the loss from the sample.
         Args:
             sample: [FloatLike; [B, ...]], the training data, `x_0`.
             t: [FloatLike; [B]], the target timesteps in range[0, 1],
                 sample from the uniform distribution if not provided.
-            eps: [FloatLike; [B, ...]], the samples from the prior distribution,
+            prior: [FloatLike; [B, ...]], the samples from the prior distribution,
                 sample from the gaussian if not provided.
         Returns:
             [FloatLike; []], loss value.
-        """
-        ...
-
-    def noise(
-        self,
-        x_0: torch.Tensor,
-        t: torch.Tensor,
-        eps: torch.Tensor | None = None,
-    ) -> torch.Tensor:
-        """Noise the given sample `x_0` to the `x_t` w.r.t. the timestep `t` and the noise `eps`.
-        Args:
-            x_0: [FloatLike; [B, ...]], the given samples, `x_0`.
-            t: [torch.long; [B]], the target timesteps in range[0, 1].
-            eps: [FloatLike; [B, ...]], the samples from the prior distribution.
-        Returns:
-            noised sample, `x_t`.
         """
         ...
 
@@ -90,10 +71,10 @@ class RecitifedDiffusion(nn.Module, ScoreModel):
         self,
         sample: torch.Tensor,
         t: torch.Tensor | None = None,
-        eps: torch.Tensor | None = None,
+        prior: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Forward to `self.model.loss`."""
-        return self.model.loss(sample, t, eps=eps)
+        return self.model.loss(sample, t, prior=prior)
 
     def sample(
         self,
@@ -127,11 +108,14 @@ class RecitifedDiffusion(nn.Module, ScoreModel):
                 sampler = ProbabilityFlowODESampler(self.model.scheduler)
                 sample, _ = sampler.sample(self.model, prior, sample, verbose)
 
+        if verbose is None:
+            verbose = lambda x: x
+
         losses = []
         self.train()
         for i in verbose(range(training_steps)):
             indices = torch.randint(0, len(sample), (batch_size,))
-            loss = self.loss(sample[indices], eps=prior[indices])
+            loss = self.loss(sample[indices], prior=prior[indices])
             # update
             optim.zero_grad()
             loss.backward()
@@ -175,6 +159,9 @@ class RecitifedDiffusion(nn.Module, ScoreModel):
         else:
             # variance-exploding denoiser
             denoiser = lambda x_t, t: sampler._denoise_ve(ema, x_t, t, var)
+
+        if verbose is None:
+            verbose = lambda x: x
 
         losses = []
         self.train()

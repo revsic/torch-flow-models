@@ -4,7 +4,13 @@ from typing import Callable, Iterable
 import torch
 import torch.nn as nn
 
-from flowmodels.basis import ContinuousScheduler, ScoreModel, Sampler
+from flowmodels.basis import (
+    ContinuousScheduler,
+    ForwardProcessSupports,
+    Sampler,
+    ScoreModel,
+    ScoreSupports,
+)
 
 
 @dataclass
@@ -28,7 +34,7 @@ class VESDEScheduler(ContinuousScheduler):
         return (self.sigma_min * (self.sigma_max / self.sigma_min) ** t).square()
 
 
-class VESDE(nn.Module, ScoreModel):
+class VESDE(nn.Module, ScoreModel, ForwardProcessSupports):
     """Score modeling with variance-expldoing SDE.
     Score-Based Generative Modeling Through Stochastic Differential Equations, Song et al., 2021.[arXiv:2011.13456]
     """
@@ -66,14 +72,14 @@ class VESDE(nn.Module, ScoreModel):
         self,
         sample: torch.Tensor,
         t: torch.Tensor | None = None,
-        eps: torch.Tensor | None = None,
+        prior: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Compute the loss from the sample.
         Args:
             sample: [FloatLike; [B, ...]], the training data, `x_0`.
             t: [FloatLike; [B]], the target timesteps in range[0, 1],
                 sample from the uniform distribution if not provided.
-            eps: [FloatLike; [B, ...]], the sample from the prior distribution,
+            prior: [FloatLike; [B, ...]], the sample from the prior distribution,
                 sample from the gaussian if not provided.
         Returns:
             [FloatLike; []], loss value.
@@ -82,10 +88,10 @@ class VESDE(nn.Module, ScoreModel):
         # sample
         if t is None:
             t = torch.rand(bsize)
-        if eps is None:
-            eps = torch.randn_like(sample)
+        if prior is None:
+            prior = torch.randn_like(sample)
         # compute objective
-        noised = self.noise(sample, t, eps=eps)
+        noised = self.noise(sample, t, prior=prior)
         estim = self.forward(noised, t)
         # [B], zero-based
         sigma = self.scheduler.var(t).sqrt().to(estim)
@@ -108,7 +114,7 @@ class VESDE(nn.Module, ScoreModel):
         self,
         x_0: torch.Tensor,
         t: torch.Tensor,
-        eps: torch.Tensor | None = None,
+        prior: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Noise the given samples `x_0` to the `x_t` w.r.t. the timesteps `t` and the noise `eps`.
         Args:
@@ -121,8 +127,8 @@ class VESDE(nn.Module, ScoreModel):
         if (t <= 0).all():
             return x_0
         # assign default value
-        if eps is None:
-            eps = torch.randn_like(x_0)
+        if prior is None:
+            prior = torch.randn_like(x_0)
         # B
         bsize, *_ = x_0.shape
         # [B], zero-based
@@ -130,7 +136,7 @@ class VESDE(nn.Module, ScoreModel):
         # [B, ...]
         sigma = sigma.view([bsize] + [1] * (x_0.dim() - 1))
         # [B, ...], variance exploding
-        return x_0 + sigma * eps.to(x_0)
+        return x_0 + sigma * prior.to(x_0)
 
 
 class VESDEAncestralSampler(Sampler):
@@ -149,7 +155,7 @@ class VESDEAncestralSampler(Sampler):
 
     def sample(
         self,
-        model: ScoreModel,
+        model: ScoreSupports,
         prior: torch.Tensor,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,

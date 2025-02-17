@@ -4,8 +4,22 @@ from typing import Callable, Iterable, Protocol
 import torch
 
 
+class SchedulerProtocol(Protocol):
+    """Protocol for variance scheduler."""
+
+    T: int
+    vp: bool
+
+    def var(self) -> torch.Tensor:
+        """Return the variances of the discrete-time diffusion models.
+        Returns:
+            [FloatLike; [T]], list of the time-dependent variances.
+        """
+        ...
+
+
 @dataclass
-class Scheduler:
+class Scheduler(SchedulerProtocol):
     """Variance schedule.
     Attributes:
         T: the number of the sampling iterations.
@@ -23,36 +37,6 @@ class Scheduler:
         raise NotImplementedError("Scheduler.var is not implemented.")
 
 
-class SchedulerProtocol(Protocol):
-    """Protocol for variance scheduler."""
-
-    T: int
-    vp: bool
-
-    def var(self) -> torch.Tensor:
-        """Return the variances of the discrete-time diffusion models.
-        Returns:
-            [FloatLike; [T]], list of the time-dependent variances.
-        """
-        ...
-
-
-@dataclass
-class ContinuousScheduler:
-    """Continuous-time scheduler."""
-
-    vp: bool = True
-
-    def var(self, t: torch.Tensor) -> torch.Tensor:
-        """Compute the variance of the prior distribution at each timesteps, `t`.
-        Args:
-            t: [FloatLike; [B]], the target timesteps, in range[0, 1].
-        Returns:
-            [FloatLike; [B]], the variances at each timesteps.
-        """
-        raise NotImplementedError("ContinuousScheduler.var is not implemented.")
-
-
 class ContinuousSchedulerProtocol(Protocol):
     """Protocol for variance scheduler."""
 
@@ -68,7 +52,55 @@ class ContinuousSchedulerProtocol(Protocol):
         ...
 
 
-class ScoreModel:
+@dataclass
+class ContinuousScheduler(ContinuousSchedulerProtocol):
+    """Continuous-time scheduler."""
+
+    vp: bool = True
+
+    def var(self, t: torch.Tensor) -> torch.Tensor:
+        """Compute the variance of the prior distribution at each timesteps, `t`.
+        Args:
+            t: [FloatLike; [B]], the target timesteps, in range[0, 1].
+        Returns:
+            [FloatLike; [B]], the variances at each timesteps.
+        """
+        raise NotImplementedError("ContinuousScheduler.var is not implemented.")
+
+
+class ScoreSupports(Protocol):
+
+    def score(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+        """Estimate the stein score from the given samples, `x_t`.
+        Args:
+            x_t: [FloatLike; [B, ...]], the given samples, `x_t`.
+            t: [FloatLike; [B]], the current timesteps, in range[0, 1].
+        Returns:
+            [FloatLike; [B, ...]], the estimated stein scores.
+        """
+        ...
+
+
+class ForwardProcessSupports(Protocol):
+
+    def noise(
+        self,
+        x_0: torch.Tensor,
+        t: torch.Tensor,
+        prior: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Noise the given sample `x_0` to the `x_t` w.r.t. the timestep `t` and the `prior`.
+        Args:
+            x_0: [FloatLike; [B, ...]], the given samples, `x_0`.
+            t: [torch.long; [B]], the target timesteps in range[0, 1].
+            prior: [FloatLike; [B, ...]], the samples from the prior distribution.
+        Returns:
+            noised sample, `x_t`.
+        """
+        ...
+
+
+class ScoreModel(ScoreSupports):
     """Basis of the score models."""
 
     def score(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
@@ -85,19 +117,35 @@ class ScoreModel:
         self,
         sample: torch.Tensor,
         t: torch.Tensor | None = None,
+        prior: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Compute the loss from the sample.
         Args:
             sample: [FloatLike; [B, ...]], the training data, `x_0`.
             t: [FloatLike; [B]], the target timesteps in range[0, 1],
                 sample from uniform distribution if not provided.
+            prior: [FloatLike; [B, ...]], the samples from the prior distribution,
+                sample from the gaussian if not provided.
         Returns:
             [FloatLike; []], loss value.
         """
         raise NotImplementedError("ScoreModel.loss is not implemented.")
 
 
-class ODEModel:
+class VelocitySupports(Protocol):
+
+    def velocity(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+        """Estimate the velocity of the given samples, `x_t`.
+        Args:
+            x_t: [FloatLike; [B, ...]], the given samples, `x_t`.
+            t: [FloatLike; [B]], the current timesteps, in range[0, 1].
+        Returns:
+            [FloatLike; [B, ...]], the estimated velocity.
+        """
+        ...
+
+
+class ODEModel(VelocitySupports):
     """Basis of the ODE models."""
 
     def velocity(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
@@ -114,12 +162,15 @@ class ODEModel:
         self,
         sample: torch.Tensor,
         t: torch.Tensor | None = None,
+        src: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Compute the loss from the sample.
         Args:
             sample: [FloatLike; [B, ...]], the training data, `x_0`.
             t: [FloatLike; [B]], the target timesteps in range[0, 1],
                 sample from uniform distribution if not provided.
+            src: [FloatLike; [B, ...]], sample from the source distribution, `X_0`,
+                sample from gaussian if not provided.
         Returns:
             [FloatLike; []], loss value.
         """
@@ -131,7 +182,7 @@ class Sampler:
 
     def sample(
         self,
-        model: ScoreModel,
+        model: ScoreSupports,
         prior: torch.Tensor,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
@@ -154,7 +205,7 @@ class ODESolver:
 
     def solve(
         self,
-        model: ODEModel,
+        model: VelocitySupports,
         init: torch.Tensor,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,

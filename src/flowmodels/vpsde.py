@@ -7,8 +7,10 @@ import torch.nn as nn
 from flowmodels.basis import (
     ContinuousScheduler,
     ContinuousSchedulerProtocol,
-    ScoreModel,
+    ForwardProcessSupports,
     Sampler,
+    ScoreModel,
+    ScoreSupports,
 )
 
 
@@ -42,7 +44,7 @@ class VPSDEScheduler(ContinuousScheduler):
         return 1 - (-0.5 * t.square() * (b_max - b_min) - t * b_min).exp()
 
 
-class VPSDE(nn.Module, ScoreModel):
+class VPSDE(nn.Module, ScoreModel, ForwardProcessSupports):
     """Score modeling with variance-preserving SDE.
     Score-Based Generative Modeling Through Stochastic Differential Equations, Song et al., 2021.[arXiv:2011.13456]
     """
@@ -81,14 +83,14 @@ class VPSDE(nn.Module, ScoreModel):
         self,
         sample: torch.Tensor,
         t: torch.Tensor | None = None,
-        eps: torch.Tensor | None = None,
+        prior: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Compute the loss from the sample.
         Args:
             sample: [FloatLike; [B, ...]], the training data, `x_0`.
             t: [FloatLike; [B]], the target timesteps in range[0, 1],
                 sample from the uniform distribution if not provided.
-            eps: [FloatLike; [B, ...]], the sample from the prior distribution,
+            prior: [FloatLike; [B, ...]], the sample from the prior distribution,
                 sample from the gaussian if not provided.
         Returns:
             [FloatLike; []], loss value.
@@ -97,10 +99,10 @@ class VPSDE(nn.Module, ScoreModel):
         # sample
         if t is None:
             t = torch.rand(bsize)
-        if eps is None:
-            eps = torch.randn_like(sample)
+        if prior is None:
+            prior = torch.randn_like(sample)
         # compute objective
-        noised = self.noise(sample, t, eps=eps)
+        noised = self.noise(sample, t, prior=prior)
         estim = self.forward(noised, t)
         # [B], zero-based
         sigma = self.scheduler.var(t).clamp(1e-10, 1.0).sqrt().to(estim)
@@ -125,21 +127,21 @@ class VPSDE(nn.Module, ScoreModel):
         self,
         x_0: torch.Tensor,
         t: torch.Tensor,
-        eps: torch.Tensor | None = None,
+        prior: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Noise the given samples `x_0` to the `x_t` w.r.t. the timesteps `t` and the noise `eps`.
         Args:
             x_0: [FloatLike; [B, ...]], the given samples, `x_0`.
             t: [torch.long; [B]], the target timesteps in range[0, 1].
-            eps: [FloatLike; [B, ...]], the samples from the prior distribution.
+            prior: [FloatLike; [B, ...]], the samples from the prior distribution.
         Returns:
             noised sample, `x_t`.
         """
         if (t <= 0).all():
             return x_0
         # assign default value
-        if eps is None:
-            eps = torch.randn_like(x_0)
+        if prior is None:
+            prior = torch.randn_like(x_0)
         # B
         bsize, *_ = x_0.shape
         # [B]
@@ -147,7 +149,7 @@ class VPSDE(nn.Module, ScoreModel):
         # [B, ...]
         var = var.view([bsize] + [1] * (x_0.dim() - 1))
         # [B, ...], variance exploding
-        return (1 - var).sqrt().to(x_0) * x_0 + var.sqrt().to(x_0) * eps.to(x_0)
+        return (1 - var).sqrt().to(x_0) * x_0 + var.sqrt().to(x_0) * prior.to(x_0)
 
 
 @runtime_checkable
@@ -177,7 +179,7 @@ class VPSDEAncestralSampler(Sampler):
 
     def sample(
         self,
-        model: ScoreModel,
+        model: ScoreSupports,
         prior: torch.Tensor,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,

@@ -41,18 +41,18 @@ class ShortcutModel(nn.Module, ODEModel):
         self,
         sample: torch.Tensor,
         t: torch.Tensor | None = None,
-        d: torch.Tensor | None = None,
         src: torch.Tensor | None = None,
+        d: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Compute the loss from the sample.
         Args:
             sample: [FloatLike; [B, ...]], training data, `X_1`.
             t: [FloatLike; [B]], target timesteps in range[0, 1],
                 sample from uniform distribution if not provided.
-            d: [FloatLike; [B]], target step sizes in range[0, 1],
-                sample from U[1/128, ..., 1/2, 1] if not provided.
             src: [FloatLike; [B, ...]], sample from the source distribution, `X_0`,
                 sample from gaussian if not provided.
+            d: [FloatLike; [B]], target step sizes in range[0, 1],
+                sample from U[1/128, ..., 1/2, 1] if not provided.
         Returns:
             [FloatLike; []], loss value.
         """
@@ -66,7 +66,9 @@ class ShortcutModel(nn.Module, ODEModel):
             src = torch.randn_like(sample)
         # compute objective
         backup = t
-        _expand = lambda x: x.view([batch_size] + [1] * (sample.dim() - 1))
+        _expand: Callable[[torch.Tensor], torch.Tensor] = lambda x: x.view(
+            [batch_size] + [1] * (sample.dim() - 1)
+        )
         # [B, ...]
         t = _expand(t)
         # [B, ...]
@@ -96,7 +98,7 @@ class ShortcutModel(nn.Module, ODEModel):
             src: [FloatLike; [B, ...]], samples from the source distribution, `X_0`.
             steps: the number of the steps.
         """
-        return self.solver.solve(self, src, steps, verbose)
+        return self.solver.solve_shortcut(self, src, steps, verbose)
 
 
 class ShortcutEulerSolver(ODESolver):
@@ -104,7 +106,7 @@ class ShortcutEulerSolver(ODESolver):
 
     DEFAULT_STEPS = 128
 
-    def solve(
+    def solve_shortcut(
         self,
         model: ShortcutModel,
         init: torch.Tensor,

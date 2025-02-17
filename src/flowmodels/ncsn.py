@@ -5,7 +5,14 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from flowmodels.basis import Sampler, Scheduler, SchedulerProtocol, ScoreModel
+from flowmodels.basis import (
+    ForwardProcessSupports,
+    Sampler,
+    Scheduler,
+    SchedulerProtocol,
+    ScoreModel,
+    ScoreSupports,
+)
 
 
 @dataclass
@@ -30,7 +37,7 @@ class NCSNScheduler(Scheduler):
         return sigma.square()
 
 
-class NCSN(nn.Module, ScoreModel):
+class NCSN(nn.Module, ScoreModel, ForwardProcessSupports):
     """Generative Modeling By Estimating Gradients of the Data Distribution, Song et al., 2019.[arXiv:1907.05600]"""
 
     def __init__(self, module: nn.Module, scheduler: Scheduler):
@@ -72,14 +79,14 @@ class NCSN(nn.Module, ScoreModel):
         self,
         sample: torch.Tensor,
         t: torch.Tensor | None = None,
-        eps: torch.Tensor | None = None,
+        prior: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Compute the loss from the sample.
         Args:
             sample: [FloatLike; [B, ...]], the training data, `x_0`.
             t: [FloatLike; [B]], the target timesteps in range[0, 1],
                 sample from the uniform distribution if not provided.
-            eps: [FloatLike; [B, ...]], the sample from the prior distribution,
+            prior: [FloatLike; [B, ...]], the sample from the prior distribution,
                 sample from the gaussian if not provided.
         Returns:
             [FloatLike; []], loss value.
@@ -88,12 +95,12 @@ class NCSN(nn.Module, ScoreModel):
         # sample
         if t is None:
             t = torch.rand(batch_size)
-        if eps is None:
-            eps = torch.randn_like(sample)
+        if prior is None:
+            prior = torch.randn_like(sample)
         # discretize in range[1, T]
         t = ((t * self.scheduler.T).long() + 1).clamp_max(self.scheduler.T)
         # compute objective
-        noised = self.noise(sample, t, eps=eps)
+        noised = self.noise(sample, t, prior=prior)
         estim = self.forward(noised, t)
         # [T], zero-based
         sigma = self.scheduler.var().sqrt().to(estim)
@@ -117,27 +124,27 @@ class NCSN(nn.Module, ScoreModel):
         self,
         x_0: torch.Tensor,
         t: torch.Tensor,
-        eps: torch.Tensor | None = None,
+        prior: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Noise the given sample `x_0` to the `x_t` w.r.t. the timestep `t` and the noise `eps`.
         Args:
             x_0: [FloatLike; [B, ...]], the given sample, `x_0`.
             t: [torch.long; [B]], the target timestep in range[1, T].
-            eps: [FloatLike; [B, ...]], the sample from the prior distribution.
+            prior: [FloatLike; [B, ...]], the sample from the prior distribution.
         Returns:
             noised sample, `x_t`.
         """
         if (t <= 0).all():
             return x_0
         # assign default value
-        if eps is None:
-            eps = torch.randn_like(x_0)
+        if prior is None:
+            prior = torch.randn_like(x_0)
         # [T], zero-based
         sigma = self.scheduler.var().sqrt().to(x_0)
         # [T, ...]
         sigma = sigma.view([self.scheduler.T] + [1] * (x_0.dim() - 1))
         # [B, ...], variance exploding
-        return x_0 + sigma[t - 1] * eps.to(x_0)
+        return x_0 + sigma[t - 1] * prior.to(x_0)
 
 
 @runtime_checkable
@@ -159,7 +166,7 @@ class AnnealedLangevinDynamicsSampler(Sampler):
 
     def sample(
         self,
-        model: ScoreModel,
+        model: ScoreSupports,
         prior: torch.Tensor,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,

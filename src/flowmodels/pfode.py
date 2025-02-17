@@ -3,7 +3,7 @@ from typing import Callable, Iterable
 import torch
 import torch.nn.functional as F
 
-from flowmodels.basis import ContinuousScheduler, Sampler, Scheduler, ScoreModel
+from flowmodels.basis import ContinuousScheduler, Sampler, Scheduler, ScoreSupports
 from flowmodels.vpsde import VPSDEAncestralSamplerSupports
 
 
@@ -19,7 +19,7 @@ class ProbabilityFlowODESampler(Sampler):
 
     def sample(
         self,
-        model: ScoreModel,
+        model: ScoreSupports,
         prior: torch.Tensor,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
@@ -76,7 +76,11 @@ class ProbabilityFlowODESampler(Sampler):
         return beta
 
     def _denoise_vp(
-        self, model: ScoreModel, x_t: torch.Tensor, t: torch.Tensor, beta: torch.Tensor
+        self,
+        model: ScoreSupports,
+        x_t: torch.Tensor,
+        t: torch.Tensor,
+        beta: torch.Tensor,
     ) -> torch.Tensor:
         """Denoise the given sample `x_t` to the single-step backward `x_{t-1}`.
         Args:
@@ -99,7 +103,7 @@ class ProbabilityFlowODESampler(Sampler):
 
     def _solve_variance_preserving_score_model(
         self,
-        model: ScoreModel,
+        model: ScoreSupports,
         prior: torch.Tensor,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
@@ -133,7 +137,11 @@ class ProbabilityFlowODESampler(Sampler):
         return x_t, x_ts
 
     def _denoise_ve(
-        self, model: ScoreModel, x_t: torch.Tensor, t: torch.Tensor, var: torch.Tensor
+        self,
+        model: ScoreSupports,
+        x_t: torch.Tensor,
+        t: torch.Tensor,
+        var: torch.Tensor,
     ) -> torch.Tensor:
         """Denoise the given sample `x_t` to the single-step backward `x_{t-1}`.
         Args:
@@ -154,7 +162,7 @@ class ProbabilityFlowODESampler(Sampler):
 
     def _solve_variance_exploding_score_model(
         self,
-        model: ScoreModel,
+        model: ScoreSupports,
         prior: torch.Tensor,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,

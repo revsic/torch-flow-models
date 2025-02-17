@@ -1,11 +1,17 @@
 from dataclasses import dataclass
-from typing import Callable, Iterable
+from typing import Callable, Iterable, Sequence
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from flowmodels.basis import Sampler, Scheduler, ScoreModel
+from flowmodels.basis import (
+    ForwardProcessSupports,
+    Sampler,
+    Scheduler,
+    ScoreModel,
+    ScoreSupports,
+)
 
 
 @dataclass
@@ -33,7 +39,7 @@ class DDPMScheduler(Scheduler):
         return 1 - alpha_bar
 
 
-class DDPM(nn.Module, ScoreModel):
+class DDPM(nn.Module, ScoreModel, ForwardProcessSupports):
     """Denoising Diffusion Probabilistic Models, Ho et al., 2020.[arXiv:2006.11239]"""
 
     def __init__(self, module: nn.Module, scheduler: Scheduler):
@@ -81,14 +87,14 @@ class DDPM(nn.Module, ScoreModel):
         self,
         sample: torch.Tensor,
         t: torch.Tensor | None = None,
-        eps: torch.Tensor | None = None,
+        prior: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Compute the loss from the sample.
         Args:
             sample: [FloatLike; [B, ...]], the training data, `x_0`.
             t: [FloatLike; [B]], the target timesteps in range[0, 1],
                 sample from the uniform distribution if not provided.
-            eps: [FloatLike; [B, ...]], the samples from the prior distribution,
+            prior: [FloatLike; [B, ...]], the samples from the prior distribution,
                 sample from the gaussian if not provided.
         Returns:
             [FloatLike; []], loss value.
@@ -97,14 +103,14 @@ class DDPM(nn.Module, ScoreModel):
         # sample
         if t is None:
             t = torch.rand(batch_size)
-        if eps is None:
-            eps = torch.randn_like(sample)
+        if prior is None:
+            prior = torch.randn_like(sample)
         # discretize in range [1, T]
         t = ((t * self.scheduler.T).long() + 1).clamp_max(self.scheduler.T)
         # compute objective
-        noised = self.noise(sample, t, eps=eps)
+        noised = self.noise(sample, t, prior=prior)
         estim = self.forward(noised, t)
-        return (eps - estim).square().mean()
+        return (prior - estim).square().mean()
 
     def sample(
         self,
@@ -118,21 +124,21 @@ class DDPM(nn.Module, ScoreModel):
         self,
         x_0: torch.Tensor,
         t: torch.Tensor,
-        eps: torch.Tensor | None = None,
+        prior: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Noise the given sample `x_0` to the `x_t` w.r.t. the timestep `t` and the noise `eps`.
         Args:
             x_0: [FloatLike; [B, ...]], the given samples, `x_0`.
             t: [torch.long; [B]], the target timesteps in range[1, T].
-            eps: [FloatLike; [B, ...]], the samples from the prior distribution.
+            prior: [FloatLike; [B, ...]], the samples from the prior distribution.
         Returns:
             noised sample, `x_t`.
         """
         if (t <= 0).all():
             return x_0
         # assign default value
-        if eps is None:
-            eps = torch.randn_like(x_0)
+        if prior is None:
+            prior = torch.randn_like(x_0)
         # settings
         dtype, device = x_0.dtype, x_0.device
         # [T], zero-based
@@ -143,9 +149,9 @@ class DDPM(nn.Module, ScoreModel):
         if self.scheduler.vp:
             return alpha_bar[t - 1].sqrt().to(dtype) * x_0 + (
                 1 - alpha_bar[t - 1]
-            ).sqrt().to(dtype) * eps.to(x_0)
+            ).sqrt().to(dtype) * prior.to(x_0)
         # variance-exploding scheduler
-        return x_0 + (1 - alpha_bar[t - 1]).sqrt().to(dtype) * eps.to(x_0)
+        return x_0 + (1 - alpha_bar[t - 1]).sqrt().to(dtype) * prior.to(x_0)
 
 
 class DDPMSampler(Sampler):
@@ -159,11 +165,11 @@ class DDPMSampler(Sampler):
 
     def sample(
         self,
-        model: ScoreModel,
+        model: ScoreSupports,
         prior: torch.Tensor,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
-        eps: list[torch.Tensor] | None = None,
+        eps: Sequence[torch.Tensor | None] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """Sample from the prior distribution to the trained distribution.
         Args:
