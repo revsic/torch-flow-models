@@ -62,3 +62,6 @@ sampled, trajectory = model.sample(torch.randn(...))
 - Rectified Diffusion[[arXiv:2410.07303](https://arxiv.org/abs/2410.07303)]: Straightness Is Not Your Need in Rectified Flow, Wang et al., 2024.
     - Imports: `RectifiedDiffusion`
     - Examples: [samples/rd.ipynb](./samples/rd.ipynb)
+- Consistency Models[[arXiv:2303.01469](https://arxiv.org/abs/2303.01469)], Song et al., 2023.
+    - Imports: `ConsistencyModel`, `MultistepConsistencySampler`
+    - Examples: [samples/cm.ipynb](./samples/cm.ipynb)

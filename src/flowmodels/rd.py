@@ -12,7 +12,7 @@ from flowmodels.basis import (
     ScoreSupports,
     Scheduler,
 )
-from flowmodels.cm import MultistepConsistencySampling
+from flowmodels.cm import MultistepConsistencySampler
 from flowmodels.pfode import ProbabilityFlowODESampler
 
 
@@ -57,7 +57,7 @@ class RecitifedDiffusion(nn.Module, ScoreModel):
         if not isinstance(model, RectificationSupports):
             raise TypeError("model must be suitable with `RectificationSupports`")
         self.model = model
-        self.sampler = MultistepConsistencySampling(self.model.scheduler)
+        self.sampler = MultistepConsistencySampler(self.model.scheduler)
 
     def forward(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         """Forward to `self.model.forward`."""
