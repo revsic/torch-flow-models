@@ -59,3 +59,6 @@ sampled, trajectory = model.sample(torch.randn(...))
 - Shortcut Model[[arXiv:2410.12557](https://arxiv.org/abs/2410.12557)]: One Step Diffusion via Shortcut Models, Frans et al., 2024.
     - Imports: `ShortcutModel`, `ShortcutEulerSolver`
     - Examples: [samples/shortcut.ipynb](./samples/shortcut.ipynb)
+- Rectified Diffusion[[arXiv:2410.07303](https://arxiv.org/abs/2410.07303)]: Straightness Is Not Your Need in Rectified Flow, Wang et al., 2024.
+    - Imports: `RectifiedDiffusion`
+    - Examples: [samples/rd.ipynb](./samples/rd.ipynb)
