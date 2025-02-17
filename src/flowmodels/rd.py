@@ -17,7 +17,7 @@ from flowmodels.pfode import ProbabilityFlowODESampler
 
 
 @runtime_checkable
-class ScoreModelProtocol(ScoreSupports, ForwardProcessSupports, Protocol):
+class RectificationSupports(ScoreSupports, ForwardProcessSupports, Protocol):
     scheduler: ContinuousScheduler | Scheduler
 
     def forward(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
@@ -52,10 +52,10 @@ class ScoreModelProtocol(ScoreSupports, ForwardProcessSupports, Protocol):
 class RecitifedDiffusion(nn.Module, ScoreModel):
     """Rectified Diffusion: Straightness Is Not Your Need in Rectified Flow, Wang et al., 2024. [arXiv:2410.07303]"""
 
-    def __init__(self, model: ScoreModelProtocol):
+    def __init__(self, model: RectificationSupports):
         super().__init__()
-        if not isinstance(model, ScoreModelProtocol):
-            raise TypeError("model must be suitable with `ScoreModelProtocol`")
+        if not isinstance(model, RectificationSupports):
+            raise TypeError("model must be suitable with `RectificationSupports`")
         self.model = model
         self.sampler = MultistepConsistencySampling(self.model.scheduler)
 
