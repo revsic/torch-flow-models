@@ -60,10 +60,13 @@ class ConsistencyModelScheduler(Scheduler):
         eps, rho, N = self.eps, self.rho, self.T + 1
         # [T + 1]
         i = torch.arange(1, N + 1)
-        return (
+        # [T + 1]
+        t_i = (
             eps ** (1 / rho)
             + (i - 1) / (N - 1) * (self.var_max ** (1 / rho) - eps ** (1 / rho))
         ) ** rho
+        # [T], drop the t_0 = eps
+        return t_i[1:]
 
 
 class EMASupports(nn.Module):
@@ -86,6 +89,7 @@ class ConsistencyModel(nn.Module, ScoreModel):
         super().__init__()
         self.module = module
         self.scheduler = scheduler
+        self.sampler = MultistepConsistencySampler(scheduler)
 
     def forward(self, x_t: torch.Tensor, t: torch.Tensor):
         """Estimate the `x_0` from the given `x_t`.
@@ -145,6 +149,15 @@ class ConsistencyModel(nn.Module, ScoreModel):
         """
         raise NotImplementedError("ScoreModel.loss is not implemented.")
 
+    def sample(
+        self,
+        prior: torch.Tensor,
+        steps: int | None = None,
+        verbose: Callable[[range], Iterable] | None = None,
+    ) -> tuple[torch.Tensor, list[torch.Tensor]]:
+        """Forward to the MultistepConsistencySampler."""
+        return self.sampler.sample(self, prior, steps, verbose=verbose)
+
     def distillation(
         self,
         score_model: ConsistencyDistillationSupports,
@@ -178,8 +191,8 @@ class ConsistencyModel(nn.Module, ScoreModel):
 
         # prepare the sampler
         sampler = MultistepConsistencySampler(score_model.scheduler)
-        # [T]
-        var = sampler._discretized_var(self.scheduler.T)
+        # [T + 1]
+        var = F.pad(self.scheduler.var(), [1, 0], "constant", self.scheduler.eps)
         # EMA: Exponential Moving Average
         ema = EMASupports(self)
 
@@ -195,10 +208,11 @@ class ConsistencyModel(nn.Module, ScoreModel):
             v_t, v_td = var[t], var[t - 1]
             # noising
             x_t: torch.Tensor
+            v_t_view = v_t.view([batch_size] + [1] * (x_0.dim() - 1))
             if self.scheduler.vp:
-                x_t = (1 - v_t).sqrt() * x_0 + v_t.sqrt() * eps
+                x_t = (1 - v_t_view).sqrt() * x_0 + v_t_view.sqrt() * eps
             else:
-                x_t = x_0 + v_t.sqrt() * eps
+                x_t = x_0 + v_t_view.sqrt() * eps
             with torch.inference_mode():
                 # [B, ...]
                 x_td = sampler._denoise(
