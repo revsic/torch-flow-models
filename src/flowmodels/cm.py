@@ -1,6 +1,6 @@
 import copy
 from dataclasses import dataclass
-from typing import Callable, Iterable, Protocol
+from typing import Callable, Iterable, Protocol, Self
 
 import torch
 import torch.nn as nn
@@ -80,6 +80,14 @@ class EMASupports[T: nn.Module](nn.Module):
         for name, param in self.module.named_parameters():
             assert name in given, f"parameters not found; named `{name}`"
             param.copy_(mu * param.data + (1 - mu) * given[name].data)
+
+    @classmethod
+    def reduce(cls, self_: T, ema: T | Self | None = None) -> T:
+        if ema is None:
+            return self_
+        if isinstance(ema, EMASupports):
+            return ema.module
+        return ema
 
 
 class ConsistencyModel(nn.Module, ScoreModel):

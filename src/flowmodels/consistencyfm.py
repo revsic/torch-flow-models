@@ -68,7 +68,7 @@ class ConsistencyFlowMatching(nn.Module, ODEModel):
         if src is None:
             src = torch.randn_like(sample)
         # reduce to the Consistency FM
-        ema = self._reduce_ema(ema)
+        ema = EMASupports[Self].reduce(self, ema)
         # compute objective
         backup = t
         # [B, ...]
@@ -88,16 +88,6 @@ class ConsistencyFlowMatching(nn.Module, ODEModel):
         # [], velocity consistency
         consistency = (estim - estim_ema).square().mean()
         return consistency + alpha * flowmatch
-
-    def _reduce_ema(self, ema: Self | EMASupports[Self] | None = None) -> Self:
-        match ema:
-            case ConsistencyFlowMatching():
-                pass
-            case None:
-                ema = self
-            case EMASupports():
-                ema = ema.module
-        return ema
 
     def sample(
         self,
