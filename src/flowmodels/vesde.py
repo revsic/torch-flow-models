@@ -107,7 +107,7 @@ class VESDE(nn.Module, ScoreModel, ForwardProcessSupports):
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
-        """Forward to the DDPMSampler."""
+        """Forward to the VESDEAncestralSampler."""
         return self.sampler.sample(self, prior, steps, verbose=verbose)
 
     def noise(

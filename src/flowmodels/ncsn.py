@@ -115,7 +115,7 @@ class NCSN(nn.Module, ScoreModel, ForwardProcessSupports):
         prior: torch.Tensor,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]] | None:
-        """Forward to the DDPMSampler."""
+        """Forward to the AnnealedLangevinDynamicsSampler."""
         if self.sampler is None:
             return None
         return self.sampler.sample(self, prior, verbose=verbose)

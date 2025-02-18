@@ -118,7 +118,7 @@ class VPSDE(nn.Module, ScoreModel, ForwardProcessSupports):
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]] | None:
-        """Forward to the DDPMSampler."""
+        """Forward to the VPSDEAncestralSampler."""
         if self.sampler is None:
             return None
         return self.sampler.sample(self, prior, steps, verbose=verbose)
