@@ -69,8 +69,8 @@ class ConsistencyModelScheduler(Scheduler):
         return t_i[1:]
 
 
-class EMASupports(nn.Module):
-    def __init__(self, module: nn.Module):
+class EMASupports[T: nn.Module](nn.Module):
+    def __init__(self, module: T):
         super().__init__()
         self.module = copy.deepcopy(module)
 
