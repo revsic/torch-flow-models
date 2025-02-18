@@ -65,3 +65,6 @@ sampled, trajectory = model.sample(torch.randn(...))
 - Consistency Models[[arXiv:2303.01469](https://arxiv.org/abs/2303.01469)], Song et al., 2023.
     - Imports: `ConsistencyModel`, `MultistepConsistencySampler`
     - Examples: [samples/cm.ipynb](./samples/cm.ipynb)
+- Consistency Flow Matching[[arXiv:2407.02398](https://arxiv.org/abs/2407.02398)]: Defining Straight Flows with Velocity Consistency, Yang et al., 2024.
+    - Imports: `ConsistencyFlowMatching`
+    - Examples: [samples/consistencyfm.ipynb](./samples/consistencyfm.ipynb)

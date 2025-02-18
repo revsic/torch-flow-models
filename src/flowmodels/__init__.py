@@ -3,6 +3,7 @@ from flowmodels.cm import (
     ConsistencyModelScheduler,
     MultistepConsistencySampler,
 )
+from flowmodels.consistencyfm import ConsistencyFlowMatching
 from flowmodels.ddim import DDIMSampler, DDIMScheduler
 from flowmodels.ddpm import DDPM, DDPMSampler, DDPMScheduler
 from flowmodels.euler import VanillaEulerSolver
