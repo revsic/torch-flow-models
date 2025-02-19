@@ -68,3 +68,6 @@ sampled, trajectory = model.sample(torch.randn(...))
 - Consistency Flow Matching[[arXiv:2407.02398](https://arxiv.org/abs/2407.02398)]: Defining Straight Flows with Velocity Consistency, Yang et al., 2024.
     - Imports: `ConsistencyFlowMatching`
     - Examples: [samples/consistencyfm.ipynb](./samples/consistencyfm.ipynb)
+- sCT[[arXiv:2410.11081](https://arxiv.org/abs/2410.11081)]: Simplifying, Stabilizing & Scaling Continuous-Time Consistency Models, Lu & Song, 2024.
+    - Imports: `ScaledContinuousCM`, `ScaledContinuousCMScheduler`
+    - Examples: [samples/sct.ipynb](./samples/sct.ipynb)
