@@ -71,3 +71,6 @@ sampled, trajectory = model.sample(torch.randn(...))
 - sCT[[arXiv:2410.11081](https://arxiv.org/abs/2410.11081)]: Simplifying, Stabilizing & Scaling Continuous-Time Consistency Models, Lu & Song, 2024.
     - Imports: `ScaledContinuousCM`, `ScaledContinuousCMScheduler`
     - Examples: [samples/sct.ipynb](./samples/sct.ipynb)
+- DSBM[[arXiv:2303.16852](https://arxiv.org/abs/2303.16852)]: Diffusion Schrodinger Bridge Matching, Shi et al., 2023.
+    - Imports: `DiffusionSchrodingerBridgeMatching`, `ModifiedVanillaEulerSolver`
+    - Examples: [samples/dsbm.ipynb](./samples/dsbm.ipynb)

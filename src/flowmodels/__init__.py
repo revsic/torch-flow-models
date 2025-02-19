@@ -6,6 +6,10 @@ from flowmodels.cm import (
 from flowmodels.consistencyfm import ConsistencyFlowMatching
 from flowmodels.ddim import DDIMSampler, DDIMScheduler
 from flowmodels.ddpm import DDPM, DDPMSampler, DDPMScheduler
+from flowmodels.dsbm import (
+    DiffusionSchrodingerBridgeMatching,
+    ModifiedVanillaEulerSolver,
+)
 from flowmodels.euler import VanillaEulerSolver
 from flowmodels.instaflow import InstaFlow
 from flowmodels.ncsn import AnnealedLangevinDynamicsSampler, NCSN, NCSNScheduler
