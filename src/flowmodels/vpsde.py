@@ -9,6 +9,7 @@ from flowmodels.basis import (
     ContinuousSchedulerProtocol,
     ForwardProcessSupports,
     Sampler,
+    SamplingSupports,
     ScoreModel,
     ScoreSupports,
 )
@@ -44,7 +45,7 @@ class VPSDEScheduler(ContinuousScheduler):
         return 1 - (-0.5 * t.square() * (b_max - b_min) - t * b_min).exp()
 
 
-class VPSDE(nn.Module, ScoreModel, ForwardProcessSupports):
+class VPSDE(nn.Module, ScoreModel, ForwardProcessSupports, SamplingSupports):
     """Score modeling with variance-preserving SDE.
     Score-Based Generative Modeling Through Stochastic Differential Equations, Song et al., 2021.[arXiv:2011.13456]
     """
@@ -117,10 +118,9 @@ class VPSDE(nn.Module, ScoreModel, ForwardProcessSupports):
         prior: torch.Tensor,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
-    ) -> tuple[torch.Tensor, list[torch.Tensor]] | None:
+    ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """Forward to the VPSDEAncestralSampler."""
-        if self.sampler is None:
-            return None
+        assert self.sampler is not None
         return self.sampler.sample(self, prior, steps, verbose=verbose)
 
     def noise(

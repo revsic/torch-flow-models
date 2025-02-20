@@ -3,12 +3,12 @@ from typing import Callable, Iterable, Self
 import torch
 import torch.nn as nn
 
-from flowmodels.basis import ODEModel
+from flowmodels.basis import ODEModel, SamplingSupports
 from flowmodels.cm import EMASupports
 from flowmodels.euler import VanillaEulerSolver
 
 
-class ConsistencyFlowMatching(nn.Module, ODEModel):
+class ConsistencyFlowMatching(nn.Module, ODEModel, SamplingSupports):
     """Consistency Flow Matching: Defining Straight Flows with Velocity Consistency, Yang et al., 2024.[arXiv:2407.02398]"""
 
     def __init__(self, module: nn.Module):
@@ -91,13 +91,13 @@ class ConsistencyFlowMatching(nn.Module, ODEModel):
 
     def sample(
         self,
-        src: torch.Tensor,
-        steps: int = 1,
+        prior: torch.Tensor,
+        steps: int | None = 1,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """Transfer the samples from the prior distribution to the trained distribution, using vanilla Euler method.
         Args:
-            src: [FloatLike; [B, ...]], samples from the source distribution, `X_0`.
+            prior: [FloatLike; [B, ...]], samples from the source distribution, `X_0`.
             steps: the number of the steps.
         """
-        return self.solver.solve(self, src, steps, verbose)
+        return self.solver.solve(self, prior, steps, verbose)

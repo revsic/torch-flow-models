@@ -3,10 +3,10 @@ from typing import Callable, Iterable
 import torch
 import torch.nn as nn
 
-from flowmodels.basis import ODEModel, ODESolver
+from flowmodels.basis import ODEModel, ODESolver, SamplingSupports
 
 
-class ShortcutModel(nn.Module, ODEModel):
+class ShortcutModel(nn.Module, ODEModel, SamplingSupports):
     """One Step Diffusion via Shortcut Models, Frans et al., 2024.[arXiv:2410.12557]"""
 
     def __init__(self, module: nn.Module):
@@ -89,16 +89,16 @@ class ShortcutModel(nn.Module, ODEModel):
 
     def sample(
         self,
-        src: torch.Tensor,
-        steps: int = 1,
+        prior: torch.Tensor,
+        steps: int | None = 1,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """Transfer the samples from the prior distribution to the trained distribution, using vanilla Euler method.
         Args:
-            src: [FloatLike; [B, ...]], samples from the source distribution, `X_0`.
+            prior: [FloatLike; [B, ...]], samples from the source distribution, `X_0`.
             steps: the number of the steps.
         """
-        return self.solver.solve_shortcut(self, src, steps, verbose)
+        return self.solver.solve_shortcut(self, prior, steps, verbose)
 
 
 class ShortcutEulerSolver(ODESolver):

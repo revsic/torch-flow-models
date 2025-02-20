@@ -8,6 +8,7 @@ import torch.nn as nn
 from flowmodels.basis import (
     ForwardProcessSupports,
     Sampler,
+    SamplingSupports,
     Scheduler,
     SchedulerProtocol,
     ScoreModel,
@@ -37,7 +38,7 @@ class NCSNScheduler(Scheduler):
         return sigma.square()
 
 
-class NCSN(nn.Module, ScoreModel, ForwardProcessSupports):
+class NCSN(nn.Module, ScoreModel, ForwardProcessSupports, SamplingSupports):
     """Generative Modeling By Estimating Gradients of the Data Distribution, Song et al., 2019.[arXiv:1907.05600]"""
 
     def __init__(self, module: nn.Module, scheduler: Scheduler):
@@ -113,12 +114,12 @@ class NCSN(nn.Module, ScoreModel, ForwardProcessSupports):
     def sample(
         self,
         prior: torch.Tensor,
+        steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
-    ) -> tuple[torch.Tensor, list[torch.Tensor]] | None:
+    ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """Forward to the AnnealedLangevinDynamicsSampler."""
-        if self.sampler is None:
-            return None
-        return self.sampler.sample(self, prior, verbose=verbose)
+        assert self.sampler is not None
+        return self.sampler.sample(self, prior, steps, verbose=verbose)
 
     def noise(
         self,

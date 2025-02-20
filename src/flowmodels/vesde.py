@@ -8,6 +8,7 @@ from flowmodels.basis import (
     ContinuousScheduler,
     ForwardProcessSupports,
     Sampler,
+    SamplingSupports,
     ScoreModel,
     ScoreSupports,
 )
@@ -34,7 +35,7 @@ class VESDEScheduler(ContinuousScheduler):
         return (self.sigma_min * (self.sigma_max / self.sigma_min) ** t).square()
 
 
-class VESDE(nn.Module, ScoreModel, ForwardProcessSupports):
+class VESDE(nn.Module, ScoreModel, ForwardProcessSupports, SamplingSupports):
     """Score modeling with variance-expldoing SDE.
     Score-Based Generative Modeling Through Stochastic Differential Equations, Song et al., 2021.[arXiv:2011.13456]
     """

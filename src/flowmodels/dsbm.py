@@ -5,10 +5,12 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from flowmodels.basis import ODESolver, ScoreModel, VelocitySupports
+from flowmodels.basis import ODESolver, SamplingSupports, ScoreModel, VelocitySupports
 
 
-class DiffusionSchrodingerBridgeMatching(nn.Module, ScoreModel, VelocitySupports):
+class DiffusionSchrodingerBridgeMatching(
+    nn.Module, ScoreModel, SamplingSupports, VelocitySupports
+):
     def __init__(self, module: nn.Module, std: float = 1.0):
         super().__init__()
         self.fwd = module  # obj: (x_1 - x_0)

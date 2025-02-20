@@ -177,6 +177,25 @@ class ODEModel(VelocitySupports):
         raise NotImplementedError("ODEModel.loss is not implemented.")
 
 
+class SamplingSupports(Protocol):
+
+    def sample(
+        self,
+        prior: torch.Tensor,
+        steps: int | None = None,
+        verbose: Callable[[range], Iterable] | None = None,
+    ) -> tuple[torch.Tensor, list[torch.Tensor]]:
+        """Sample from the trained distribution from the prior samples.
+        Args:
+            prior: [FloatLike; [B, ...]], the given prior samples.
+            steps: the number of the steps to sample.
+        Returns:
+            [FloatLike; [B, ...]], sampled data.
+            `T` x [FloatLike; [B, ...]], sampling trajectories.
+        """
+        ...
+
+
 class Sampler:
     """Score-based sampler."""
 

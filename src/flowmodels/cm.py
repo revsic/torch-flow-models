@@ -10,6 +10,7 @@ from flowmodels.basis import (
     ContinuousScheduler,
     ForwardProcessSupports,
     Sampler,
+    SamplingSupports,
     Scheduler,
     ScoreModel,
     ScoreSupports,
@@ -90,7 +91,7 @@ class EMASupports[T: nn.Module](nn.Module):
         return ema
 
 
-class ConsistencyModel(nn.Module, ScoreModel):
+class ConsistencyModel(nn.Module, ScoreModel, SamplingSupports):
     """Consistency Models, Song et al., 2023. [arXiv:2303.01469]"""
 
     def __init__(self, module: nn.Module, scheduler: ConsistencyModelScheduler):

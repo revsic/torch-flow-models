@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from flowmodels.basis import (
     ForwardProcessSupports,
     Sampler,
+    SamplingSupports,
     Scheduler,
     ScoreModel,
     ScoreSupports,
@@ -39,7 +40,7 @@ class DDPMScheduler(Scheduler):
         return 1 - alpha_bar
 
 
-class DDPM(nn.Module, ScoreModel, ForwardProcessSupports):
+class DDPM(nn.Module, ScoreModel, ForwardProcessSupports, SamplingSupports):
     """Denoising Diffusion Probabilistic Models, Ho et al., 2020.[arXiv:2006.11239]"""
 
     def __init__(self, module: nn.Module, scheduler: Scheduler):
@@ -115,10 +116,11 @@ class DDPM(nn.Module, ScoreModel, ForwardProcessSupports):
     def sample(
         self,
         prior: torch.Tensor,
+        steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """Forward to the DDPMSampler."""
-        return self.sampler.sample(self, prior, verbose=verbose)
+        return self.sampler.sample(self, prior, steps, verbose=verbose)
 
     def noise(
         self,

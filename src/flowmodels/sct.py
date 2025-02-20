@@ -8,6 +8,7 @@ import torch.nn as nn
 from flowmodels.basis import (
     ContinuousScheduler,
     ForwardProcessSupports,
+    SamplingSupports,
     ScoreModel,
     VelocitySupports,
 )
@@ -27,7 +28,7 @@ class ScaledContinuousCMScheduler(ContinuousScheduler):
 
 
 class ScaledContinuousCM(
-    nn.Module, ForwardProcessSupports, ScoreModel, VelocitySupports
+    nn.Module, ScoreModel, ForwardProcessSupports, SamplingSupports, VelocitySupports
 ):
     """sCT: Simplifying, Stabilizing & Scailing Continuous-Time Consistency Models, Lu & Song, 2024.[arXiv:2410.11081]"""
 

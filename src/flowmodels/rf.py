@@ -3,11 +3,11 @@ from typing import Callable, Iterable
 import torch
 import torch.nn as nn
 
-from flowmodels.basis import ODEModel
+from flowmodels.basis import ODEModel, SamplingSupports
 from flowmodels.euler import VanillaEulerSolver
 
 
-class RectifiedFlow(nn.Module, ODEModel):
+class RectifiedFlow(nn.Module, ODEModel, SamplingSupports):
     """
     Rectified Flow: Flow Straight and Fast: Learning to Generate and Transfer Data with Rectified Flow, Liu et al., 2022.[arXiv:2209.03003],
     Flow Matching: Flow Matching for Generative Modeling, Lipman et al., 2022.[arXiv:2210.02747]
@@ -72,16 +72,16 @@ class RectifiedFlow(nn.Module, ODEModel):
 
     def sample(
         self,
-        src: torch.Tensor,
-        steps: int = 1,
+        prior: torch.Tensor,
+        steps: int | None = 1,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """Transfer the samples from the prior distribution to the trained distribution, using vanilla Euler method.
         Args:
-            src: [FloatLike; [B, ...]], samples from the source distribution, `X_0`.
+            prior: [FloatLike; [B, ...]], samples from the source distribution, `X_0`.
             steps: the number of the steps.
         """
-        return self.solver.solve(self, src, steps, verbose)
+        return self.solver.solve(self, prior, steps, verbose)
 
     def distillation(
         self,

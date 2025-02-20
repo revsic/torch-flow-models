@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from flowmodels.basis import (
     ContinuousScheduler,
     ForwardProcessSupports,
+    SamplingSupports,
     ScoreModel,
     ScoreSupports,
     Scheduler,
@@ -49,7 +50,7 @@ class RectificationSupports(ScoreSupports, ForwardProcessSupports, Protocol):
         ...
 
 
-class RecitifedDiffusion(nn.Module, ScoreModel):
+class RecitifedDiffusion(nn.Module, ScoreModel, SamplingSupports):
     """Rectified Diffusion: Straightness Is Not Your Need in Rectified Flow, Wang et al., 2024. [arXiv:2410.07303]"""
 
     def __init__(self, model: RectificationSupports):
