@@ -11,6 +11,7 @@ from flowmodels.dsbm import (
     ModifiedVanillaEulerSolver,
 )
 from flowmodels.euler import VanillaEulerSolver
+from flowmodels.fireflow import FireFlowInversion, FireFlowSolver
 from flowmodels.instaflow import InstaFlow
 from flowmodels.ncsn import AnnealedLangevinDynamicsSampler, NCSN, NCSNScheduler
 from flowmodels.pfode import ProbabilityFlowODESampler
