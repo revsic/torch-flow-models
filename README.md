@@ -76,7 +76,10 @@ sampled, trajectory = model.sample(torch.randn(...))
     - Examples: [samples/dsbm.ipynb](./samples/dsbm.ipynb)
 - FireFlow[[arXiv:2412.07517](https://arxiv.org/abs/2412.07517)]: Fast Inversion of Rectified Flow for Image Semantic Editing, Deng et al., 2024. 
     - Imports: `FireFlowSolver`, `FireFlowInversion`
-    - Examples: [samples/rf.ipynb](./samples/rf.ipynb), 4. Test the model
+    - Examples: [samples/rf.ipynb](./samples/rf.ipynb), 4.5. Inversion Methods
 - RF-Solver[[arXiv:2411.04746](https://arxiv.org/abs/2411.04746)]: Taming Rectified Flow for Inversion and Editing, Wang et al., 2024. 
     - Imports: `RFSolver`, `RFInversion`
-    - Examples: [samples/rf.ipynb](./samples/rf.ipynb), 4. Test the model
+    - Examples: [samples/rf.ipynb](./samples/rf.ipynb), 4.5. Inversion Methods
+- Controlled ODE[[arXiv:2410.10792]()]: Semantic Image Inversion And Editing Using Rectified Stochastic Differential Equations, Rout et al., 2024.
+    - Imports: `ControlledODESolver`, `ControlledODEInversion`
+    - Examples: [samples/rf.ipynb](./samples/rf.ipynb), 4.5. Inversion Methods

@@ -4,6 +4,7 @@ from flowmodels.cm import (
     MultistepConsistencySampler,
 )
 from flowmodels.consistencyfm import ConsistencyFlowMatching
+from flowmodels.controlledode import ControlledODEInversion, ControlledODESolver
 from flowmodels.ddim import DDIMSampler, DDIMScheduler
 from flowmodels.ddpm import DDPM, DDPMSampler, DDPMScheduler
 from flowmodels.dsbm import (
