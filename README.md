@@ -80,6 +80,9 @@ sampled, trajectory = model.sample(torch.randn(...))
 - RF-Solver[[arXiv:2411.04746](https://arxiv.org/abs/2411.04746)]: Taming Rectified Flow for Inversion and Editing, Wang et al., 2024. 
     - Imports: `RFSolver`, `RFInversion`
     - Examples: [samples/rf.ipynb](./samples/rf.ipynb), 4.5. Inversion Methods
-- Controlled ODE[[arXiv:2410.10792]()]: Semantic Image Inversion And Editing Using Rectified Stochastic Differential Equations, Rout et al., 2024.
+- Controlled ODE[[arXiv:2410.10792](https://arxiv.org/abs/2412.00100)]: Semantic Image Inversion And Editing Using Rectified Stochastic Differential Equations, Rout et al., 2024.
     - Imports: `ControlledODESolver`, `ControlledODEInversion`
     - Examples: [samples/rf.ipynb](./samples/rf.ipynb), 4.5. Inversion Methods
+- FlowEdit[[arXiv:2412.08629](https://arxiv.org/abs/2412.08629)]: Inversion-Free Text-Based Editing Using Pre-Trained Flow Models, Kulikov et al., 2024.
+    - Imports: `FlowEditSolver`
+    - Examples: [samples/flowedit.ipynb](./samples/flowedit.ipynb)
