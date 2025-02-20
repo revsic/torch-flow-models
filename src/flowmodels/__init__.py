@@ -17,6 +17,7 @@ from flowmodels.ncsn import AnnealedLangevinDynamicsSampler, NCSN, NCSNScheduler
 from flowmodels.pfode import ProbabilityFlowODESampler
 from flowmodels.rd import RecitifedDiffusion
 from flowmodels.rf import RectifiedFlow
+from flowmodels.rfsolver import RFInversion, RFSolver
 from flowmodels.sct import ScaledContinuousCM, ScaledContinuousCMScheduler
 from flowmodels.shortcut import ShortcutModel, ShortcutEulerSolver
 from flowmodels.vesde import VESDE, VESDEAncestralSampler, VESDEScheduler

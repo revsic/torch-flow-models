@@ -74,6 +74,9 @@ sampled, trajectory = model.sample(torch.randn(...))
 - DSBM[[arXiv:2303.16852](https://arxiv.org/abs/2303.16852)]: Diffusion Schrodinger Bridge Matching, Shi et al., 2023.
     - Imports: `DiffusionSchrodingerBridgeMatching`, `ModifiedVanillaEulerSolver`
     - Examples: [samples/dsbm.ipynb](./samples/dsbm.ipynb)
-- FireFlow: Fast Inversion of Rectified Flow for Image Semantic Editing, Deng et al., 2024. 
+- FireFlow[[arXiv:2412.07517](https://arxiv.org/abs/2412.07517)]: Fast Inversion of Rectified Flow for Image Semantic Editing, Deng et al., 2024. 
     - Imports: `FireFlowSolver`, `FireFlowInversion`
-    - Examples: [samples/rf.ipynb], 4. Test the model
+    - Examples: [samples/rf.ipynb](./samples/rf.ipynb), 4. Test the model
+- RF-Solver[[arXiv:2411.04746](https://arxiv.org/abs/2411.04746)]: Taming Rectified Flow for Inversion and Editing, Wang et al., 2024. 
+    - Imports: `RFSolver`, `RFInversion`
+    - Examples: [samples/rf.ipynb](./samples/rf.ipynb), 4. Test the model
