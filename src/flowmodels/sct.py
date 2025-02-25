@@ -140,12 +140,14 @@ class ScaledContinuousCM(
         )
         # [B, ...]
         estim: torch.Tensor = self.F0.forward(x_t / sigma_d, t)
-        # [B]
-        mse = (
-            (estim - F - cos_mul_grad)
-            .square()
-            .mean(dim=[i + 1 for i in range(x_t.dim() - 1)])
+        # reducing dimension
+        rdim = [i + 1 for i in range(x_t.dim() - 1)]
+        # normalized tangent
+        normalized_tangent = cos_mul_grad / (
+            cos_mul_grad.norm(p=2, dim=rdim, keepdim=True) + 0.1
         )
+        # [B]
+        mse = (estim - F - normalized_tangent).square().mean(dim=rdim)
         # [B], adaptive weighting
         logvar = self._ada_weight.forward(_t).squeeze(dim=-1)
         # [B]
