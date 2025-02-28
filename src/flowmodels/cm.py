@@ -136,9 +136,10 @@ class ConsistencyModel(nn.Module, ScoreModel, SamplingSupports):
         var = F.pad(self.scheduler.var(), [1, 0], "constant", 1e-7).view(
             [self.scheduler.T + 1] + [1] * (x_0.dim() - 1)
         )
-        return ((1 - var[t]).sqrt().to(x_0) * x_0 - x_t) / var[t].to(x_0).clamp_min(
-            1e-7
-        )
+        if self.scheduler.vp:
+            x_0 = (1 - var[t]).sqrt().to(x_0) * x_0
+
+        return (x_0 - x_t) / var[t].to(x_0).clamp_min(1e-7)
 
     def loss(
         self,
@@ -191,7 +192,7 @@ class ConsistencyModel(nn.Module, ScoreModel, SamplingSupports):
             a list of the loss values and EMA-updated consistency models.
         """
         assert self.scheduler.vp == score_model.scheduler.vp, (
-            "both schedulers should be same variance-manaing scheme; "
+            "both schedulers should be same variance-managing scheme; "
             "both variance-exploding or both variance-preserving"
         )
         # assign default values
