@@ -2,7 +2,8 @@ from typing import Callable, Iterable
 
 import torch
 
-from flowmodels.basis import ODESolver, VelocityInverter, VelocitySupports
+from flowmodels.basis import ODESolver, VelocitySupports
+from flowmodels.utils import VelocityInverter
 
 
 class FireFlowSolver(ODESolver):

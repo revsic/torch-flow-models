@@ -92,10 +92,23 @@ class ForwardProcessSupports(Protocol):
         """Noise the given sample `x_0` to the `x_t` w.r.t. the timestep `t` and the `prior`.
         Args:
             x_0: [FloatLike; [B, ...]], the given samples, `x_0`.
-            t: [torch.long; [B]], the target timesteps in range[0, 1].
+            t: [FloatLike; [B]], the target timesteps in range[0, 1].
             prior: [FloatLike; [B, ...]], the samples from the prior distribution.
         Returns:
             noised sample, `x_t`.
+        """
+        ...
+
+
+class PredictionSupports(Protocol):
+
+    def predict(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+        """Predict the sample points `x_0` from the `x_t` w.r.t. the timestep `t`.
+        Args:
+            x_t: [FloatLike; [B, ...]], the given points, `x_t`.
+            t: [FloatLike; [B]], the target timesteps in range[0, 1].
+        Returns:
+            the predicted sample points `x_0`.
         """
         ...
 
@@ -194,15 +207,6 @@ class SamplingSupports(Protocol):
             `T` x [FloatLike; [B, ...]], sampling trajectories.
         """
         ...
-
-
-class VelocityInverter(VelocitySupports):
-    def __init__(self, model: VelocitySupports):
-        self.model = model
-
-    def velocity(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
-        """Invert the estimated velocity"""
-        return -self.model.velocity(x_t, 1 - t)
 
 
 class Sampler:
