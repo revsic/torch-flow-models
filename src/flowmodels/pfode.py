@@ -4,6 +4,7 @@ import torch
 import torch.nn.functional as F
 
 from flowmodels.basis import ContinuousScheduler, Sampler, Scheduler, ScoreSupports
+from flowmodels.utils import discretize_variance
 from flowmodels.vpsde import VPSDEAncestralSamplerSupports
 
 
@@ -41,23 +42,6 @@ class ProbabilityFlowODESampler(Sampler):
             )
         # variance exploding
         return self._solve_variance_exploding_score_model(model, prior, steps, verbose)
-
-    def _discretized_var(self, steps: int | None = None) -> torch.Tensor:
-        """Discretize the variance sequence.
-        Args:
-            steps: the number of the steps.
-        Returns:
-            [FloatLike; [steps]], discretized variance sequence.
-        """
-        # discrete-time scheduler
-        if isinstance(self.scheduler, Scheduler):
-            assert steps is None or self.scheduler.T == steps
-            return self.scheduler.var()
-        # continuous-time scheduler
-        steps = steps or self.DEFAULT_STEPS
-        # [T], in range[1 / T, 1]
-        timesteps = torch.arange(1, steps + 1, dtype=torch.float32) / steps
-        return self.scheduler.var(timesteps)
 
     def _compute_vp_beta(self, alpha_bar: torch.Tensor) -> torch.Tensor:
         """Compute the beta sequence.
@@ -125,7 +109,9 @@ class ProbabilityFlowODESampler(Sampler):
         # B
         bsize, *_ = prior.shape
         # [T]
-        beta = self._compute_vp_beta(_alpha_bar := 1 - self._discretized_var(steps))
+        var = discretize_variance(self.scheduler, steps)
+        # [T]
+        beta = self._compute_vp_beta(_alpha_bar := 1 - var)
         # T
         (T,) = beta.shape
         x_t, x_ts = prior, []
@@ -186,7 +172,7 @@ class ProbabilityFlowODESampler(Sampler):
         # B
         bsize, *_ = prior.shape
         # [T]
-        var = self._discretized_var(steps)
+        var = discretize_variance(self.scheduler, steps)
         # T
         (T,) = var.shape
         x_t, x_ts = prior, []

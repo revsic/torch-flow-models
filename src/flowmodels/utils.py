@@ -1,188 +1,117 @@
-from typing import Callable, Iterable, Protocol, Self, Type
+import copy
+from typing import Self
 
-import matplotlib.pyplot as plt
-import numpy as np
 import torch
 import torch.nn as nn
-from tqdm.auto import tqdm
 
-from flowmodels.basis import SamplingSupports
-from flowmodels.cm import EMASupports
+from flowmodels.basis import (
+    ContinuousSchedulerProtocol,
+    SchedulerProtocol,
+    ScoreSupports,
+    VelocitySupports,
+)
 
 
-class Testbed(nn.Module, SamplingSupports):
-    def __init__(self, dim: int = 1):
+class EMASupports[T: nn.Module](nn.Module):
+    def __init__(self, module: T):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(dim + 1, 64),
-            nn.ReLU(),
-            nn.Linear(64, 64),
-            nn.ReLU(),
-            nn.Linear(64, dim),
-        )
+        self.module = copy.deepcopy(module)
 
-    class _InheritanceSupports(SamplingSupports, Protocol):
-        def loss(self, sample: torch.Tensor, t: torch.Tensor, src: torch.Tensor): ...
-        def loss(
-            self,
-            sample: torch.Tensor,
-            t: torch.Tensor,
-            src: torch.Tensor,
-            ema: EMASupports[Self],
-        ): ...
-        def loss(self, sample: torch.Tensor, t: torch.Tensor, prior: torch.Tensor): ...
-        def loss(
-            self,
-            sample: torch.Tensor,
-            t: torch.Tensor,
-            prior: torch.Tensor,
-            ema: EMASupports[Self],
-        ): ...
+    @torch.no_grad()
+    def update(self, module: nn.Module, mu: float | torch.Tensor):
+        given = dict(module.named_parameters())
+        for name, param in self.module.named_parameters():
+            assert name in given, f"parameters not found; named `{name}`"
+            param.copy_(mu * param.data + (1 - mu) * given[name].data)
 
     @classmethod
-    def inherit[S: _InheritanceSupports](
-        cls, Super: Type[S], dim: int = 1, retn_class: bool = False, *args, **kwargs
-    ):
-        class Inherited(cls):
-            def __init__(self, dim: int = 1, *args, **kwargs):
-                super().__init__(dim)
-                self._super = (Super(self, *args, **kwargs),)
+    def reduce(cls, self_: T, ema: T | Self | None = None) -> T:
+        if ema is None:
+            return self_
+        if isinstance(ema, EMASupports):
+            return ema.module
+        return ema
 
-            @property
-            def base(self) -> S:
-                (_super,) = self._super
-                return _super
 
-            def loss(
-                self,
-                sample: torch.Tensor,
-                t: torch.Tensor,
-                src: torch.Tensor,
-                ema: EMASupports | None = None,
-            ):
-                if ema is None:
-                    return self.base.loss(sample, t, src)
-                return self.base.loss(sample, t, src, ema)
+class VelocityInverter(VelocitySupports):
+    def __init__(self, model: VelocitySupports):
+        self.model = model
 
-            def sample(
-                self,
-                prior: torch.Tensor,
-                steps: int | None = None,
-                verbose: Callable[[range], Iterable] | None = None,
-            ):
-                return self.base.sample(prior, steps, verbose)
+    def velocity(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+        """Invert the estimated velocity"""
+        return -self.model.velocity(x_t, 1 - t)
 
-        if retn_class:
-            return Inherited
-        return Inherited(dim, *args, **kwargs)
 
-    def forward(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
-        return self.net.forward(torch.cat([x_t, t[:, None].to(x_t)], dim=-1))
+def discretize_variance(
+    scheduler: ContinuousSchedulerProtocol | SchedulerProtocol | None = None,
+    steps: int | None = None,
+    _default_steps=4,
+) -> torch.Tensor:
+    """Construct the sequence of discretized variances."""
+    var: torch.Tensor
+    match scheduler:
+        case None:
+            # uniform space, in range[1/T, 1]
+            steps = steps or _default_steps
+            return torch.arange(1, steps + 1, dtype=torch.float32) / steps
+        case SchedulerProtocol():
+            var = scheduler.var()
+            if steps is not None:
+                # for easier step-sampling
+                assert scheduler.T % steps == 0
+                # [steps], step-size sampling from the last variance
+                # e.g. [3, 7, 11] will be sampled from [0, 1, ..., 11] with 3-steps
+                var = var.view(steps, -1).T[-1]
+        case ContinuousSchedulerProtocol():
+            steps = steps or _default_steps
+            # [T], in range[1/T, 1]
+            var = scheduler.var(torch.arange(1, steps + 1, dtype=torch.float32) / steps)
+    return var
 
-    def loss(
-        self,
-        sample: torch.Tensor,
-        t: torch.Tensor,
-        src: torch.Tensor,
-        ema: EMASupports[Self] | None = None,
-    ) -> torch.Tensor: ...
 
-    def train_loop(
-        self,
-        dataset: torch.Tensor | tuple[torch.Tensor, torch.Tensor],
-        lr: float = 0.001,
-        train_steps: int = 1000,
-        batch_size: int = 2048,
-        optim: Type[torch.optim.Optimizer] | torch.optim.Optimizer = torch.optim.Adam,
-        mu: float = 0.0,
-        ema: EMASupports[Self] | None = None,
-    ) -> list[float]:
-        # train
-        self.train()
-        if isinstance(optim, type):
-            optim = optim(self.parameters(), lr)
-
-        _length = len(dataset)
-        if isinstance(dataset, tuple):
-            _data, _prior = dataset
-            _length = len(_data)
-
-        losses = []
-        with tqdm(range(train_steps)) as pbar:
-            for i in pbar:
-                indices = torch.randint(0, _length, (batch_size,))
-                if isinstance(dataset, torch.Tensor):
-                    sample = dataset[indices]
-                    prior = torch.randn_like(sample)
-                else:
-                    sample, prior = _data[indices], _prior[indices]
-                # []
-                loss = self.loss(sample, torch.rand(batch_size), prior, ema)
-                # update
-                optim.zero_grad()
-                loss.backward()
-                optim.step()
-
-                if ema is not None:
-                    ema.update(self, mu=mu)
-
-                # log
-                loss = loss.detach().item()
-                losses.append(loss)
-                pbar.set_postfix_str(f"loss: {loss:.2f}")
-
-        return losses
-
-    def visualize(
-        self,
-        name: str,
-        losses: list[float],
-        gt: torch.Tensor,
-        prior: torch.Tensor | None = None,
-        steps: list[int] = [100, 4, 1],
-        n: int = 10000,
-        histspace: torch.Tensor = torch.linspace(-3, 3, 200),
-        trajspace: torch.Tensor = torch.linspace(-3, 3, 10)[:, None],
-        verbose: Callable[[range], Iterable] | None = None,
-        _sigma_data: float = 1.0,
-    ):
-        plt.plot(losses)
-
-        # plot histogram
-        if prior is None:
-            prior = torch.randn(n, *gt.shape[1:])
-        with torch.inference_mode():
-            x_ts = [
-                x_t for step in steps for x_t, _ in (self.sample(prior, step, verbose),)
-            ]
-        plt.figure()
-        plt.hist(prior, bins=histspace, label="prior")
-        plt.hist(gt[:n], bins=histspace, label="gt", alpha=0.7)
-        for step, x_t in zip(steps, x_ts):
-            plt.hist(x_t.view(-1), bins=histspace, label=f"{name}-{step}", alpha=0.5)
-        plt.legend()
-        _xticks, _ = plt.xticks()
-
-        # plt.trajectory
-        with torch.inference_mode():
-            x_trajs = [
-                x_ts
-                for step in steps
-                for _, x_ts in (self.sample(trajspace, step, verbose),)
-            ]
-        plt.figure()
-        colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
-        for i in range(len(trajspace)):
-            for j, (step, x_ts) in enumerate(zip(steps, x_trajs)):
-                plt.plot(
-                    torch.tensor(
-                        [_sigma_data * trajspace[i].item()]
-                        + [x_t[i].item() for x_t in x_ts]
-                    ),
-                    np.linspace(0, 1, len(x_ts) + 1),
-                    colors[j % len(colors)],
-                    **({} if i > 0 else {"label": f"{name}-{step}"}),
-                    alpha=0.5,
-                )
-                plt.xticks(_xticks)
-        plt.legend()
+def backward_process(
+    model: ScoreSupports,
+    x_t: torch.Tensor,
+    t: torch.Tensor,
+    var: torch.Tensor,
+    var_prev: torch.Tensor | None = None,
+    vp: bool = True,
+):
+    """Single step sampler.
+    Args:
+        model: the score-estimation model.
+        x_t: [FloatLike; [B, ...]], the given samples, `x_t`.
+        t: [FloatLike; [B]], the current timesteps, `t` in range[0, 1].
+        var: [FloatLike; [B]], the variance of the noise in time `t`.
+        var_prev: [FloatLike; [B]], the variance of the noise in single step backward at time `t`,
+            i.e. `var_{t - d}` of step size `d`.
+        vp: whether the given model is formulated with variance preserving process or not.
+    Returns:
+        [FloatLike; [B, ...]], estimated sample `x_0` if var_prev is not given,
+            otherwise `x_{t-d}` of implicit step size `d` given by `var_prev`.
+    """
+    # B
+    batch_size, *_ = x_t.shape
+    # [B, ...]
+    var = var.view([batch_size] + [1] * (x_t.dim() - 1))
+    # [B, ...]
+    eps = -model.score(x_t, t) * var.sqrt().to(x_t)
+    # [B, ...]
+    x_0 = x_t - var.sqrt().to(x_t) * eps
+    # variance exploding
+    if not vp:
+        # return x_0 directly
+        if var_prev is None:
+            return x_0
+        # [B, ...]
+        var_prev = var_prev.view([batch_size] + [1] * (x_t.dim() - 1))
+        # single-step backward to `x_{t-d}` where step size `d` is implicity given by `var_prev`
+        return x_0 + var_prev.sqrt().to(x_t) * eps
+    # variance preserving
+    x_0 = x_0 * (1 - var).clamp_min(1e-7).rsqrt().to(x_0)
+    if var_prev is None:
+        return x_0
+    # [B, ...]
+    var_prev = var_prev.view([batch_size] + [1] * (x_t.dim() - 1))
+    # single-step backward
+    return (1 - var_prev).sqrt().to(x_0) * x_0 + var_prev.sqrt().to(x_0) * eps

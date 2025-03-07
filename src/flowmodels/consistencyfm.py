@@ -4,8 +4,8 @@ import torch
 import torch.nn as nn
 
 from flowmodels.basis import ODEModel, SamplingSupports
-from flowmodels.cm import EMASupports
 from flowmodels.euler import VanillaEulerSolver
+from flowmodels.utils import EMASupports
 
 
 class ConsistencyFlowMatching(nn.Module, ODEModel, SamplingSupports):
