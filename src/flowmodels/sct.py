@@ -8,11 +8,13 @@ import torch.nn as nn
 from flowmodels.basis import (
     ContinuousScheduler,
     ForwardProcessSupports,
+    PredictionSupports,
     SamplingSupports,
     ScoreModel,
     VelocitySupports,
 )
-from flowmodels.cm import EMASupports, MultistepConsistencySampler
+from flowmodels.cm import MultistepConsistencySampler
+from flowmodels.utils import EMASupports
 
 
 @dataclass
@@ -28,7 +30,12 @@ class ScaledContinuousCMScheduler(ContinuousScheduler):
 
 
 class ScaledContinuousCM(
-    nn.Module, ScoreModel, ForwardProcessSupports, SamplingSupports, VelocitySupports
+    nn.Module,
+    ScoreModel,
+    ForwardProcessSupports,
+    PredictionSupports,
+    SamplingSupports,
+    VelocitySupports,
 ):
     """sCT: Simplifying, Stabilizing & Scailing Continuous-Time Consistency Models, Lu & Song, 2024.[arXiv:2410.11081]"""
 
@@ -37,7 +44,7 @@ class ScaledContinuousCM(
         self.F0 = module
         self._ada_weight = nn.Linear(1, 1)
         self.scheduler = scheduler
-        self.sampler = MultistepConsistencySampler(scheduler)
+        self.sampler = MultistepConsistencySampler()
 
     def forward(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         """Estimate the `x_0` from the given `x_t`.
@@ -55,6 +62,16 @@ class ScaledContinuousCM(
         t = (t * np.pi * 0.5).view([bsize] + [1] * (x_t.dim() - 1))
         return t.cos() * x_t - t.sin() * sigma_d * self.F0(x_t / sigma_d, backup)
 
+    def predict(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+        """Predict the sample points `x_0` from the `x_t` w.r.t. the timestep `t`.
+        Args:
+            x_t: [FloatLike; [B, ...]], the given points, `x_t`.
+            t: [FloatLike; [B]], the target timesteps in range[0, 1].
+        Returns:
+            the predicted sample points `x_0`.
+        """
+        return self.forward(x_t, t)
+
     def velocity(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         """Estimate the velocity of the given samples, `x_t`.
         Args:
@@ -64,7 +81,7 @@ class ScaledContinuousCM(
             [FloatLike; [B, ...]], the estimated velocity.
         """
         sigma_d = self.scheduler.sigma_d
-        return sigma_d * self.F0(x_t / sigma_d, t * np.pi * 0.5)
+        return sigma_d * self.F0(x_t / sigma_d, t)
 
     def score(self, x_t: torch.Tensor, t: torch.Tensor):
         """Estimate the stein score from the given sample `x_t`.
@@ -119,7 +136,7 @@ class ScaledContinuousCM(
             # compute a reciprocal of the prior weighting term from the given t
             rw_t = t.tan() * sigma_d
         # [B, ...], `self.noise` automatically scale the prior with `sigma_d`
-        x_t = self.noise(sample, t, prior)
+        x_t = self.noise(sample, t / np.pi * 2, prior)
         # [B, ...]
         _t = t.view([batch_size] + [1] * (x_t.dim() - 1))
         # [B, ...]
@@ -127,7 +144,7 @@ class ScaledContinuousCM(
         # [B, ...], [B, ...], jvp = t.cos() * t.sin() * dF/dt
         F, jvp, *_ = torch.func.jvp(  # pyright: ignore [reportPrivateImportUsage]
             EMASupports[Self].reduce(self, ema).F0.forward,
-            (x_t / sigma_d, t),
+            (x_t / sigma_d, t / np.pi * 2),
             (_t.cos() * _t.sin() * v_t, t.cos() * t.sin() * sigma_d),
         )
         F: torch.Tensor = F.detach()
@@ -139,7 +156,7 @@ class ScaledContinuousCM(
             - sigma_d * jvp
         )
         # [B, ...]
-        estim: torch.Tensor = self.F0.forward(x_t / sigma_d, t)
+        estim: torch.Tensor = self.F0.forward(x_t / sigma_d, t / np.pi * 2)
         # reducing dimension
         rdim = [i + 1 for i in range(x_t.dim() - 1)]
         # normalized tangent
@@ -162,9 +179,7 @@ class ScaledContinuousCM(
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """Forward to the MultistepConsistencySampler."""
-        std = self.scheduler.sigma_d
-        # pre-scale the prior
-        return self.sampler.sample(self, prior * std, steps, verbose=verbose)
+        return self.sampler.sample(self, prior, steps, verbose)
 
     def noise(
         self,

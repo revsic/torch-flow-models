@@ -1,9 +1,10 @@
 from dataclasses import dataclass
-from typing import Callable, Iterable, Protocol
+from typing import Callable, Iterable, Protocol, runtime_checkable
 
 import torch
 
 
+@runtime_checkable
 class SchedulerProtocol(Protocol):
     """Protocol for variance scheduler."""
 
@@ -37,6 +38,7 @@ class Scheduler(SchedulerProtocol):
         raise NotImplementedError("Scheduler.var is not implemented.")
 
 
+@runtime_checkable
 class ContinuousSchedulerProtocol(Protocol):
     """Protocol for variance scheduler."""
 
@@ -68,6 +70,7 @@ class ContinuousScheduler(ContinuousSchedulerProtocol):
         raise NotImplementedError("ContinuousScheduler.var is not implemented.")
 
 
+@runtime_checkable
 class ScoreSupports(Protocol):
 
     def score(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
@@ -81,6 +84,7 @@ class ScoreSupports(Protocol):
         ...
 
 
+@runtime_checkable
 class ForwardProcessSupports(Protocol):
 
     def noise(
@@ -100,6 +104,7 @@ class ForwardProcessSupports(Protocol):
         ...
 
 
+@runtime_checkable
 class PredictionSupports(Protocol):
 
     def predict(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
@@ -145,6 +150,7 @@ class ScoreModel(ScoreSupports):
         raise NotImplementedError("ScoreModel.loss is not implemented.")
 
 
+@runtime_checkable
 class VelocitySupports(Protocol):
 
     def velocity(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
@@ -190,6 +196,7 @@ class ODEModel(VelocitySupports):
         raise NotImplementedError("ODEModel.loss is not implemented.")
 
 
+@runtime_checkable
 class SamplingSupports(Protocol):
 
     def sample(

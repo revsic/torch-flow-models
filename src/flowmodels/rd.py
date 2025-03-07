@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from flowmodels.basis import (
     ContinuousScheduler,
     ForwardProcessSupports,
+    PredictionSupports,
     SamplingSupports,
     ScoreModel,
     ScoreSupports,
@@ -15,6 +16,7 @@ from flowmodels.basis import (
 )
 from flowmodels.cm import MultistepConsistencySampler
 from flowmodels.pfode import ProbabilityFlowODESampler
+from flowmodels.utils import CommonScoreModel
 
 
 @runtime_checkable
@@ -50,7 +52,9 @@ class RectificationSupports(ScoreSupports, ForwardProcessSupports, Protocol):
         ...
 
 
-class RecitifedDiffusion(nn.Module, ScoreModel, SamplingSupports):
+class RecitifedDiffusion(
+    nn.Module, ScoreModel, ForwardProcessSupports, PredictionSupports, SamplingSupports
+):
     """Rectified Diffusion: Straightness Is Not Your Need in Rectified Flow, Wang et al., 2024. [arXiv:2410.07303]"""
 
     def __init__(self, model: RectificationSupports):
@@ -58,7 +62,7 @@ class RecitifedDiffusion(nn.Module, ScoreModel, SamplingSupports):
         if not isinstance(model, RectificationSupports):
             raise TypeError("model must be suitable with `RectificationSupports`")
         self.model = model
-        self.sampler = MultistepConsistencySampler(self.model.scheduler)
+        self.sampler = MultistepConsistencySampler()
 
     def forward(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         """Forward to `self.model.forward`."""
@@ -67,6 +71,46 @@ class RecitifedDiffusion(nn.Module, ScoreModel, SamplingSupports):
     def score(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         """Forward to `self.model.score`."""
         return self.model.score(x_t, t)
+
+    def noise(
+        self,
+        x_0: torch.Tensor,
+        t: torch.Tensor,
+        prior: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Forward to `self.model.noise`."""
+        return self.model.noise(x_0, t, prior)
+
+    def predict(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+        """Predict the sample points `x_0` from the `x_t` w.r.t. the timestep `t`.
+        Args:
+            x_t: [FloatLike; [B, ...]], the given points, `x_t`.
+            t: [FloatLike; [B]], the target timesteps in range[0, 1].
+        Returns:
+            the predicted sample points `x_0`.
+        """
+        # [B]
+        var: torch.Tensor
+        if isinstance(self.model.scheduler, ContinuousScheduler):
+            var = self.model.scheduler.var(t)
+        else:
+            # [T]
+            variances = F.pad(
+                CommonScoreModel.discretize_variance(self.model.scheduler),
+                [1, 0],
+                "constant",
+                value=0.0,
+            )
+            # discretize
+            var = variances[(t * (len(variances) - 1)).long()]
+
+        return CommonScoreModel.backward_process(
+            self.model,
+            x_t,
+            t,
+            var,
+            vp=self.model.scheduler.vp,
+        )
 
     def loss(
         self,
