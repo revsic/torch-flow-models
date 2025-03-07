@@ -16,7 +16,7 @@ from flowmodels.basis import (
 )
 from flowmodels.cm import MultistepConsistencySampler
 from flowmodels.pfode import ProbabilityFlowODESampler
-from flowmodels.utils import CommonScoreModel
+from flowmodels.utils import backward_process, discretize_variance
 
 
 @runtime_checkable
@@ -96,7 +96,7 @@ class RecitifedDiffusion(
         else:
             # [T]
             variances = F.pad(
-                CommonScoreModel.discretize_variance(self.model.scheduler),
+                discretize_variance(self.model.scheduler),
                 [1, 0],
                 "constant",
                 value=0.0,
@@ -104,7 +104,7 @@ class RecitifedDiffusion(
             # discretize
             var = variances[(t * (len(variances) - 1)).long()]
 
-        return CommonScoreModel.backward_process(
+        return backward_process(
             self.model,
             x_t,
             t,
@@ -189,7 +189,7 @@ class RecitifedDiffusion(
         """
         sampler = ProbabilityFlowODESampler(self.model.scheduler)
         # [T]
-        var = sampler._discretized_var()
+        var = discretize_variance(self.model.scheduler)
         # T
         (T,) = var.shape
         # EMA purpose

@@ -13,7 +13,7 @@ from flowmodels.basis import (
     Scheduler,
     ScoreSupports,
 )
-from flowmodels.utils import EMASupports, CommonScoreModel
+from flowmodels.utils import EMASupports, backward_process
 
 
 class ConsistencyDistillationSupports(ScoreSupports, Protocol):
@@ -196,7 +196,7 @@ class ConsistencyModel(
             x_t = self.noise(x_0, t / self.scheduler.T, eps)
             with torch.inference_mode():
                 # [B, ...]
-                x_td = CommonScoreModel.backward_process(
+                x_td = backward_process(
                     score_model,
                     x_t,
                     t / self.scheduler.T,
