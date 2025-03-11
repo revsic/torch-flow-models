@@ -12,7 +12,9 @@ def get_timestep_embedding(
     assert dim % 2 == 0
     emb = np.log(max_positions) / (dim // 2 - 1)
     # [E // 2]
-    emb = torch.exp(torch.arange(dim // 2, dtype=torch.float32) * -emb)
+    emb = torch.exp(
+        torch.arange(dim // 2, dtype=torch.float32, device=timesteps.device) * -emb
+    )
     # [T, E // 2]
     emb = timesteps[:, None] * emb[None]
     # [T, E]
@@ -336,7 +338,7 @@ class DDPMpp(nn.Module):
 
     def forward(self, x: torch.Tensor, time_cond: torch.Tensor) -> torch.Tensor:
         # [B, E]
-        temb = get_timestep_embedding(time_cond, self.nf)
+        temb = get_timestep_embedding(time_cond.to(x), self.nf)
         # [B, E x 4]
         temb = self.proj_temb(temb)
 

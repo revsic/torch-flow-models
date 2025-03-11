@@ -1,5 +1,6 @@
 # dev purpose
 test.*
+cifar-10-batches-py
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
