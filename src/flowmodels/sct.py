@@ -4,6 +4,7 @@ from typing import Callable, Iterable, Self
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from flowmodels.basis import (
     ContinuousScheduler,
@@ -142,13 +143,14 @@ class ScaledContinuousCM(
         # [B, ...]
         v_t = _t.cos() * prior * sigma_d - _t.sin() * sample
         # [B, ...], [B, ...], jvp = t.cos() * t.sin() * dF/dt
-        F, jvp, *_ = torch.func.jvp(  # pyright: ignore [reportPrivateImportUsage]
-            EMASupports[Self].reduce(self, ema).F0.forward,
-            (x_t / sigma_d, t / np.pi * 2),
-            (_t.cos() * _t.sin() * v_t, t.cos() * t.sin() * sigma_d),
-        )
-        F: torch.Tensor = F.detach()
-        jvp: torch.Tensor = jvp.detach()
+        with torch.no_grad():
+            F, jvp, *_ = torch.func.jvp(  # pyright: ignore [reportPrivateImportUsage]
+                EMASupports[Self].reduce(self, ema).F0.forward,
+                (x_t / sigma_d, t / np.pi * 2),
+                (_t.cos() * _t.sin() * v_t, t.cos() * t.sin() * sigma_d),
+            )
+            F: torch.Tensor = F.detach()
+            jvp: torch.Tensor = jvp.detach()
         # df/dt = -t.cos() * (sigma_d * F(x_t/sigma_d, t) - dx_t/dt) - t.sin() * (x_t + sigma_d * dF/dt)
         cos_mul_grad = (
             -_t.cos().square() * (sigma_d * F - v_t)
@@ -202,3 +204,92 @@ class ScaledContinuousCM(
         t = (t * np.pi * 0.5).view([bsize] + [1] * (x_0.dim() - 1))
         # [B, ...]
         return t.cos() * x_0 + t.sin() * prior * self.scheduler.sigma_d
+
+
+class TrigFlow(ScaledContinuousCM):
+
+    def loss(
+        self,
+        sample: torch.Tensor,
+        t: torch.Tensor | None = None,
+        prior: torch.Tensor | None = None,
+        ema: Self | EMASupports[Self] | None = None,
+    ) -> torch.Tensor:
+        # shortcut
+        batch_size, *_ = sample.shape
+        sigma_d = self.scheduler.sigma_d
+        # sample
+        if prior is None:
+            prior = torch.randn_like(sample)
+        if t is None:
+            # shortcut
+            p_std, p_mean = self.scheduler.p_std, self.scheduler.p_std
+            # sample from log-normal
+            rw_t = (torch.randn(batch_size) * p_std + p_mean).exp()
+            # [T], in range[0, pi/2]
+            t = (rw_t / sigma_d).atan()
+        else:
+            # scale into range[0, pi/2]
+            t = t * np.pi * 0.5
+        # [B, ...], `self.noise` automatically scale the prior with `sigma_d`
+        x_t = self.noise(sample, t / np.pi * 2, prior)
+        # [B, ...]
+        _t = t.view([batch_size] + [1] * (x_t.dim() - 1))
+        # [B, ...]
+        v_t = _t.cos() * prior * sigma_d - _t.sin() * sample
+        # [B, ...]
+        estim = sigma_d * self.F0.forward(x_t / sigma_d, t / np.pi * 2)
+        return (estim - v_t).square().mean()
+
+    def sample(
+        self,
+        prior: torch.Tensor,
+        steps: int | None = None,
+        verbose: Callable[[range], Iterable] | None = None,
+        sigma_min: float = 0.02,
+        sigma_max: float | None = None,
+        rho: float = 7,
+    ) -> tuple[torch.Tensor, list[torch.Tensor]]:
+        """EDM Sampler, reference git+NVlabs/edm/generate.py."""
+        batch_size, *_ = prior.shape
+        # assign default values
+        steps = steps or 18
+        sigma_max = sigma_max or self.scheduler.sigma_d
+        if verbose is None:
+            verbose = lambda x: x
+        # sample parameter for moving device
+        p = next(self.parameters())
+        # [T]
+        t_steps = (
+            sigma_max ** (1 / rho)
+            + torch.arange(steps, dtype=torch.float64, device=prior.device)
+            / (steps - 1)
+            * (sigma_min ** (1 / rho) - sigma_max ** (1 / rho))
+        ) ** rho
+        # [T + 1]
+        t_steps = F.pad(t_steps, [0, 1], "constant", 0.0)
+        # Main sampling loop.
+        x, xs = prior.to(torch.float64) * t_steps[0], []
+        for i in range(steps):
+            # [], []
+            t_cur, t_next = t_steps[i : i + 2]
+            # [B, ...], []
+            x_hat, t_hat = x, t_cur
+            # [B]
+            _t = t_hat.repeat(batch_size)
+            # [B, ...]
+            denoised = self.predict(x_hat.to(p), _t).to(torch.float64)
+            d_cur = (x_hat - denoised) / t_hat
+            x = x_hat + (t_next - t_hat) * d_cur
+            # 2nd-order midpoint correction
+            if i < steps - 1:
+                # [B]
+                _t = t_next.repeat(batch_size)
+                # [B, ...]
+                denoised = self.predict(x.to(p), _t).to(torch.float64)
+                d_prime = (x - denoised) / t_next
+                x = x_hat + (t_next - t_hat) * (0.5 * d_cur + 0.5 * d_prime)
+
+            xs.append(x)
+
+        return x, xs
