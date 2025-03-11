@@ -2,6 +2,7 @@
 test.*
 cifar-10-batches-py
 *.pkl
+*.npz
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
