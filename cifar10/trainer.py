@@ -8,6 +8,7 @@ from accelerate import Accelerator
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
+from fid import compute_fid_with_model
 from flowmodels.basis import ScoreModel, ODEModel
 
 
@@ -88,6 +89,9 @@ class Cifar10Trainer:
         model, optimizer, train_loader, test_loader = accelerator.prepare(
             self.model, self.optim, self.train_loader, self.test_loader
         )
+        _model = model
+        if isinstance(model, torch.nn.parallel.DistributedDataParallel):
+            _model = model.module
 
         step = 0
         epochs = -(-total // len(self.train_loader))
@@ -95,7 +99,7 @@ class Cifar10Trainer:
             with tqdm(train_loader, leave=False) as pbar:
                 for sample, labels in pbar:
                     with accelerator.accumulate(model):
-                        loss = model.loss(sample * 2 - 1)
+                        loss = _model.loss(sample * 2 - 1)
                         accelerator.backward(loss)
 
                         optimizer.step()
@@ -117,16 +121,17 @@ class Cifar10Trainer:
                             [torch.norm(p).item() for p in self.model.parameters()]
                         )
 
-                    self.train_log.add_scalar("common/grad-norm", grad_norm, step)
+                    if not np.isnan(grad_norm):
+                        self.train_log.add_scalar("common/grad-norm", grad_norm, step)
                     self.train_log.add_scalar("common/param-norm", param_norm, step)
                     self.train_log.add_scalar(
                         "common/lr", self.optim.param_groups[0]["lr"], step
                     )
 
-            if accelerator.is_main_process:
+            if accelerator.is_main_process and epoch % (epochs // 20) == 0:
                 with torch.no_grad():
                     losses = [
-                        model.loss(bunch * 2 - 1).item()
+                        _model.loss(bunch * 2 - 1).item()
                         for bunch, labels in tqdm(test_loader, leave=False)
                     ]
                     self.test_log.add_scalar(f"loss", np.mean(losses), step)
@@ -134,8 +139,14 @@ class Cifar10Trainer:
                     # plot image
                     model.eval()
                     sample, _ = next(iter(test_loader))
-                    sample, trajectories = model.sample(
-                        torch.randn_like(sample[:num_samples]),
+                    _, c, h, w = sample.shape
+                    sample, trajectories = _model.sample(
+                        torch.randn(
+                            *(num_samples, c, h, w),
+                            generator=torch.Generator(sample.device).manual_seed(0),
+                            dtype=sample.dtype,
+                            device=sample.device,
+                        ),
                         verbose=lambda x: tqdm(x, leave=False),
                     )
                     model.train()
@@ -144,9 +155,19 @@ class Cifar10Trainer:
                         self.test_log.add_image(f"sample/{i}", img, step)
 
                         for j, traj in list(enumerate(trajectories))[
-                            :: -(-len(trajectories) // 5)
+                            :: -(-len(trajectories) // 4)
                         ]:
                             point = ((traj[i] + 1) * 0.5).clamp(0.0, 1.0)
                             self.test_log.add_image(f"sample/{i}/traj@{j}", point, step)
 
+                    fid = compute_fid_with_model(
+                        _model,
+                        num_samples=10000,
+                        sampling_batch_size=self.test_loader.batch_size,
+                        device=accelerator.device,
+                    )
+                    self.test_log.add_scalar("metric/fid10k", fid, step)
+
                 accelerator.save_state(self.workspace / "ckpt" / str(epoch))
+
+        accelerator.save_state(self.workspace / "ckpt" / str(epoch))
