@@ -15,7 +15,7 @@ def reproduce_trigflow_cifar10():
     stamp = datetime.now(timezone(timedelta(hours=9))).strftime("%Y.%m.%dKST%H:%M:%S")
     trainer = Cifar10Trainer(
         model,
-        batch_size=1,
+        batch_size=512,
         lr=0.001,
         betas=(0.9, 0.999),
         eps=1e-8,
