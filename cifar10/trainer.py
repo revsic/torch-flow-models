@@ -11,14 +11,6 @@ from tqdm import tqdm
 from flowmodels.basis import ScoreModel, ODEModel
 
 
-# DDPMpp(
-#     resolution=32,
-#     in_channels=3,
-#     dropout=0.13,
-# )
-# 2nd-order single-step DPM-Solver (Lu et al., 2022a) (DPM-Solver-2S) with Heun’s intermediate time step with 18 steps (NFE=35)
-
-
 class Cifar10Trainer:
     def __init__(
         self,
@@ -130,7 +122,6 @@ class Cifar10Trainer:
                     self.train_log.add_scalar(
                         "common/lr", self.optim.param_groups[0]["lr"], step
                     )
-                    break
 
             if accelerator.is_main_process:
                 with torch.no_grad():
