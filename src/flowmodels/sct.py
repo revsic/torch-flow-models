@@ -203,7 +203,7 @@ class ScaledContinuousCM(
         # [B, ...], scale in range [0, pi/2]
         t = (t * np.pi * 0.5).view([bsize] + [1] * (x_0.dim() - 1))
         # [B, ...]
-        return t.cos() * x_0 + t.sin() * prior * self.scheduler.sigma_d
+        return t.cos().to(x_0) * x_0 + t.sin().to(x_0) * prior * self.scheduler.sigma_d
 
 
 class TrigFlow(ScaledContinuousCM):
@@ -236,7 +236,7 @@ class TrigFlow(ScaledContinuousCM):
         # [B, ...]
         _t = t.view([batch_size] + [1] * (x_t.dim() - 1))
         # [B, ...]
-        v_t = _t.cos() * prior * sigma_d - _t.sin() * sample
+        v_t = _t.cos().to(x_t) * prior * sigma_d - _t.sin().to(x_t) * sample
         # [B, ...]
         estim = sigma_d * self.F0.forward(x_t / sigma_d, t / np.pi * 2)
         return (estim - v_t).square().mean()
@@ -249,6 +249,7 @@ class TrigFlow(ScaledContinuousCM):
         sigma_min: float = 0.02,
         sigma_max: float | None = None,
         rho: float = 7,
+        dtype: torch.dtype = torch.float64,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """EDM Sampler, reference git+NVlabs/edm/generate.py."""
         batch_size, *_ = prior.shape
@@ -262,14 +263,14 @@ class TrigFlow(ScaledContinuousCM):
         # [T]
         t_steps = (
             sigma_max ** (1 / rho)
-            + torch.arange(steps, dtype=torch.float64, device=prior.device)
+            + torch.arange(steps, dtype=dtype, device=prior.device)
             / (steps - 1)
             * (sigma_min ** (1 / rho) - sigma_max ** (1 / rho))
         ) ** rho
         # [T + 1]
         t_steps = F.pad(t_steps, [0, 1], "constant", 0.0)
         # Main sampling loop.
-        x, xs = prior.to(torch.float64) * t_steps[0], []
+        x, xs = prior.to(dtype) * t_steps[0], []
         for i in range(steps):
             # [], []
             t_cur, t_next = t_steps[i : i + 2]
@@ -278,7 +279,7 @@ class TrigFlow(ScaledContinuousCM):
             # [B]
             _t = t_hat.repeat(batch_size)
             # [B, ...]
-            denoised = self.predict(x_hat.to(p), _t).to(torch.float64)
+            denoised = self.predict(x_hat.to(p), _t).to(dtype)
             d_cur = (x_hat - denoised) / t_hat
             x = x_hat + (t_next - t_hat) * d_cur
             # 2nd-order midpoint correction
@@ -286,7 +287,7 @@ class TrigFlow(ScaledContinuousCM):
                 # [B]
                 _t = t_next.repeat(batch_size)
                 # [B, ...]
-                denoised = self.predict(x.to(p), _t).to(torch.float64)
+                denoised = self.predict(x.to(p), _t).to(dtype)
                 d_prime = (x - denoised) / t_next
                 x = x_hat + (t_next - t_hat) * (0.5 * d_cur + 0.5 * d_prime)
 
