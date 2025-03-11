@@ -319,17 +319,18 @@ class TrigFlow(ScaledContinuousCM):
         # [T + 1]
         t_steps = F.pad(t_steps, [0, 1], "constant", 0.0)
         # Main sampling loop.
-        x, xs = prior.to(dtype), []
-        for i in verbose(range(steps)):
+        x, xs = prior.to(dtype) * t_steps[0], []
+        for i in range(steps):
             # [], []
             t_cur, t_next = t_steps[i : i + 2]
             # [B, ...], []
             x_hat, t_hat = x, t_cur
             # [B]
             _t = t_hat.repeat(batch_size)
-            # [B, ...], rescale t-steps into range[0, 1]
-            d_cur = sigma_d * self.F0.forward(x_hat.to(p) / sigma_d, _t).to(dtype)
-            x = torch.cos(t_hat - t_next) * x_hat - torch.sin(t_hat - t_next) * d_cur
+            # [B, ...]
+            denoised = self.predict(x_hat.to(p), _t).to(dtype)
+            d_cur = (x_hat - denoised) / t_hat
+            x = x_hat + (t_next - t_hat) * d_cur
             # 2nd-order midpoint correction
             if i < steps - 1 and correction:
                 # [B]
