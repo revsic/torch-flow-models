@@ -83,20 +83,23 @@ class Cifar10Trainer:
             log_with="tensorboard",
             project_dir=self.workspace / "logs",
         )
-        if accelerator.is_main_process:
+        _main_proc = accelerator.is_main_process
+        if _main_proc:
             accelerator.init_trackers("train")
 
         model, optimizer, train_loader, test_loader = accelerator.prepare(
             self.model, self.optim, self.train_loader, self.test_loader
         )
         _model = model
-        if isinstance(model, torch.nn.parallel.DistributedDataParallel):
+        if isinstance(_model, torch._dynamo.OptimizedModule):
+            _model = model._orig_mod
+        if isinstance(_model, torch.nn.parallel.DistributedDataParallel):
             _model = model.module
 
         step = 0
         epochs = -(-total // len(self.train_loader))
-        for epoch in tqdm(range(epochs)):
-            with tqdm(train_loader, leave=False) as pbar:
+        for epoch in tqdm(range(epochs), disable=not _main_proc):
+            with tqdm(train_loader, leave=False, disable=not _main_proc) as pbar:
                 for sample, labels in pbar:
                     with accelerator.accumulate(model):
                         loss = _model.loss(sample * 2 - 1)
@@ -106,29 +109,32 @@ class Cifar10Trainer:
                         optimizer.zero_grad()
 
                     step += 1
-                    pbar.set_postfix({"loss": loss.item(), "step": step})
-                    self.train_log.add_scalar(f"loss", loss.item(), step)
+                    if _main_proc:
+                        pbar.set_postfix({"loss": loss.item(), "step": step})
+                        self.train_log.add_scalar("loss", loss.item(), step)
 
-                    with torch.no_grad():
-                        grad_norm = np.mean(
-                            [
+                        with torch.no_grad():
+                            _grad_norms = [
                                 torch.norm(p.grad).item()
-                                for p in self.model.parameters()
+                                for p in model.parameters()
                                 if p.grad is not None
                             ]
-                        )
-                        param_norm = np.mean(
-                            [torch.norm(p).item() for p in self.model.parameters()]
-                        )
+                            if _grad_norms:
+                                self.train_log.add_scalar(
+                                    "common/grad-norm", np.mean(_grad_norms), step
+                                )
 
-                    if not np.isnan(grad_norm):
-                        self.train_log.add_scalar("common/grad-norm", grad_norm, step)
-                    self.train_log.add_scalar("common/param-norm", param_norm, step)
-                    self.train_log.add_scalar(
-                        "common/lr", self.optim.param_groups[0]["lr"], step
-                    )
+                            param_norm = np.mean(
+                                [torch.norm(p).item() for p in model.parameters()]
+                            )
+                            self.train_log.add_scalar(
+                                "common/param-norm", param_norm, step
+                            )
+                            self.train_log.add_scalar(
+                                "common/lr", self.optim.param_groups[0]["lr"], step
+                            )
 
-            if accelerator.is_main_process and epoch % (epochs // 20) == 0:
+            if _main_proc and epoch % (epochs // 20) == 0:
                 with torch.no_grad():
                     losses = [
                         _model.loss(bunch * 2 - 1).item()
