@@ -24,6 +24,7 @@ def calculate_inception_stats(
 ):
     import fid.torch_utils as torch_utils
     import fid.dnnlib as dnnlib
+
     sys.modules.update({"torch_utils": torch_utils, "dnnlib": dnnlib})
     # https://api.ngc.nvidia.com/v2/models/nvidia/research/stylegan3/versions/1/files/metrics/inception-2015-12-05.pkl
     with open(inception or DEFAULT_INCEPTION_PATH, "rb") as f:
