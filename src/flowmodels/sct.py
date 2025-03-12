@@ -58,9 +58,9 @@ class ScaledContinuousCM(
         # shortcut
         (bsize,) = t.shape
         sigma_d = self.scheduler.sigma_d
-        backup = t
+        backup = t * np.pi * 0.5
         # [B, ...], scale t to range[0, pi/2]
-        t = (t * np.pi * 0.5).view([bsize] + [1] * (x_t.dim() - 1))
+        t = backup.view([bsize] + [1] * (x_t.dim() - 1))
         return t.cos() * x_t - t.sin() * sigma_d * self.F0(x_t / sigma_d, backup)
 
     def predict(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
@@ -82,7 +82,7 @@ class ScaledContinuousCM(
             [FloatLike; [B, ...]], the estimated velocity.
         """
         sigma_d = self.scheduler.sigma_d
-        return sigma_d * self.F0(x_t / sigma_d, t)
+        return sigma_d * self.F0(x_t / sigma_d, t * np.pi * 0.5)
 
     def score(self, x_t: torch.Tensor, t: torch.Tensor):
         """Estimate the stein score from the given sample `x_t`.
@@ -146,7 +146,7 @@ class ScaledContinuousCM(
         with torch.no_grad():
             F, jvp, *_ = torch.func.jvp(  # pyright: ignore [reportPrivateImportUsage]
                 EMASupports[Self].reduce(self, ema).F0.forward,
-                (x_t / sigma_d, t / np.pi * 2),
+                (x_t / sigma_d, t),
                 (_t.cos() * _t.sin() * v_t, t.cos() * t.sin() * sigma_d),
             )
             F: torch.Tensor = F.detach()
@@ -158,7 +158,7 @@ class ScaledContinuousCM(
             - sigma_d * jvp
         )
         # [B, ...]
-        estim: torch.Tensor = self.F0.forward(x_t / sigma_d, t / np.pi * 2)
+        estim: torch.Tensor = self.F0.forward(x_t / sigma_d, t)
         # reducing dimension
         rdim = [i + 1 for i in range(x_t.dim() - 1)]
         # normalized tangent
@@ -238,7 +238,7 @@ class TrigFlow(ScaledContinuousCM):
         # [B, ...]
         v_t = _t.cos() * prior * sigma_d - _t.sin() * sample
         # [B, ...]
-        estim = sigma_d * self.F0.forward(x_t / sigma_d, t / np.pi * 2)
+        estim = sigma_d * self.F0.forward(x_t / sigma_d, t)
         return (estim - v_t).square().mean()
 
     def sample(
