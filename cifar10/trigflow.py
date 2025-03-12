@@ -1,14 +1,28 @@
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-from ddpmpp import DDPMpp
+from ddpmpp_cm import UNetModel
 from flowmodels.sct import TrigFlow, ScaledContinuousCMScheduler
 from trainer import Cifar10Trainer
 
 
 def reproduce_trigflow_cifar10():
     # model definition
-    backbone = DDPMpp(resolution=32, in_channels=3, dropout=0.13)
+    backbone = UNetModel(
+        in_channels=3,
+        model_channels=128,
+        out_channels=3,
+        num_res_blocks=4,
+        attention_resolutions=[16],
+        dropout=0.13,
+        channel_mult=[1, 2, 2, 2],
+        conv_resample=True,  # Unknown
+        num_heads=1,
+        use_scale_shift_norm=True,
+        use_double_norm=True,
+        resblock_updown=False,
+        temb_scale=0.02,
+    )
     model = TrigFlow(backbone, ScaledContinuousCMScheduler())
 
     # timestamp
