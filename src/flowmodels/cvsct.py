@@ -1,3 +1,4 @@
+from copy import deepcopy
 from typing import Callable, Iterable
 
 import numpy as np
@@ -14,9 +15,10 @@ class ConstantVelocityConsistencyModels(
     ODEModel,
     SamplingSupports,
 ):
-    def __init__(self, module: nn.Module, p_mean: float = -1.0, p_std: float = 1.4):
+    def __init__(self, module: nn.Module, p_mean: float = -1.0, p_std: float = 1.4, h: float = 1.2):
         super().__init__()
         self.F0 = module
+        self.v0 = deepcopy(module)
         self.p_mean = p_mean
         self.p_std = p_std
         self._ada_weight = _AdaptiveWeights()
@@ -31,9 +33,10 @@ class ConstantVelocityConsistencyModels(
             [FloatLike; [B, ...]], estimated sample from the given `x_t`.
         """
         (bsize,) = t.shape
-        return x_t + (1 - t.view([bsize] + [1] * (x_t.dim() - 1))) * self.F0.forward(
-            x_t, t
-        )
+        t_ = t.view([bsize] + [1] * (x_t.dim() - 1))
+        return x_t + (1 - t_) * self.v0.forward(x_t, t) + 0.5 * (
+            1 - t_.square()
+        ) * self.F0.forward(x_t, t)
 
     def velocity(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         """Estimate the velocity of the given samples, `x_t`.
@@ -43,7 +46,10 @@ class ConstantVelocityConsistencyModels(
         Returns:
             [FloatLike; [B, ...]], the estimated velocity.
         """
-        return self.F0.forward(x_t, t)
+        bsize, = t.shape
+        return self.v0.forward(x_t, t) + t.view(
+            [bsize] + [1] * (x_t.dim() - 1)
+        ) * self.F0.forward(x_t, t)
 
     def loss(
         self,
@@ -77,9 +83,11 @@ class ConstantVelocityConsistencyModels(
         # [B, ...]
         _t = t.view([batch_size] + [1] * (sample.dim() - 1))
         # [B, ...]
-        x_t = _t * sample + (1 - _t) * src
+        v_0 = self._h * (sample - src)
         # [B, ...]
-        v_t = sample - src
+        x_t = (1 - _t.square()) * src + _t.square() * sample + v_0 * (_t - _t.square())
+        # [B, ...]
+        v_t = v_0 + 2 * _t * (sample - src - v_0)
         with torch.no_grad():
             # [B, ...], [B, ...], jvp = dF/dt
             F, jvp, *_ = torch.func.jvp(  # pyright: ignore [reportPrivateImportUsage]
@@ -96,7 +104,7 @@ class ConstantVelocityConsistencyModels(
         # normalized tangent
         normalized_tangent = grad / (grad.norm(p=2, dim=rdim, keepdim=True) + 0.1)
         # [B, ...]
-        estim: torch.Tensor = self.F0.forward(x_t, t)
+        estim: torch.Tensor = self.forward(x_t, t)
         # [B]
         mse = (estim - F - normalized_tangent).square().mean(dim=rdim)
         # [B], adaptive weighting
