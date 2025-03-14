@@ -65,6 +65,8 @@ class Cifar10Trainer:
             eps=eps,
         )
 
+        self.scheduler: torch.optim.lr_scheduler.LRScheduler | None = None
+
         workspace.mkdir(parents=True, exist_ok=True)
         self.train_log = SummaryWriter(workspace / "logs" / "train")
         self.test_log = SummaryWriter(workspace / "logs" / "test")
@@ -90,6 +92,10 @@ class Cifar10Trainer:
         model, optimizer, train_loader, test_loader = accelerator.prepare(
             self.model, self.optim, self.train_loader, self.test_loader
         )
+        scheduler = None
+        if self.scheduler is not None:
+            scheduler = accelerator.prepare(self.scheduler)
+
         _model = model
         if isinstance(_model, torch._dynamo.OptimizedModule):
             _model = model._orig_mod
@@ -106,6 +112,8 @@ class Cifar10Trainer:
                         accelerator.backward(loss)
 
                         optimizer.step()
+                        if scheduler is not None:
+                            scheduler.step()
                         optimizer.zero_grad()
 
                     step += 1
