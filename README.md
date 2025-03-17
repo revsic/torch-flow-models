@@ -86,3 +86,6 @@ sampled, trajectory = model.sample(torch.randn(...))
 - FlowEdit[[arXiv:2412.08629](https://arxiv.org/abs/2412.08629)]: Inversion-Free Text-Based Editing Using Pre-Trained Flow Models, Kulikov et al., 2024.
     - Imports: `FlowEditSolver`
     - Examples: [samples/flowedit.ipynb](./samples/flowedit.ipynb)
+- CAF[[arXiv:2411.00322](https://arxiv.org/abs/2411.00322)]: Constant Acceleration Flow, Park et al., 2024.
+    - Imports: `ConstantAccelerationFlow`
+    - Examples: [samples/caf.ipynb](./samples/caf.ipynb)
