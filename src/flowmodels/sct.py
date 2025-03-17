@@ -40,10 +40,16 @@ class ScaledContinuousCM(
 ):
     """sCT: Simplifying, Stabilizing & Scailing Continuous-Time Consistency Models, Lu & Song, 2024.[arXiv:2410.11081]"""
 
-    def __init__(self, module: nn.Module, scheduler: ScaledContinuousCMScheduler):
+    def __init__(
+        self,
+        module: nn.Module,
+        scheduler: ScaledContinuousCMScheduler,
+        tangent_warmup: int | None = None,
+    ):
         super().__init__()
         self.F0 = module
         self._ada_weight = nn.Linear(1, 1)
+        self._tangent_warmup, self._steps = tangent_warmup, 0
         self.scheduler = scheduler
         self.sampler = MultistepConsistencySampler()
 
@@ -58,7 +64,7 @@ class ScaledContinuousCM(
         # shortcut
         (bsize,) = t.shape
         sigma_d = self.scheduler.sigma_d
-        backup = t * np.pi * 0.5
+        backup = t.to(x_t.device) * np.pi * 0.5
         # [B, ...], scale t to range[0, pi/2]
         t = backup.view([bsize] + [1] * (x_t.dim() - 1))
         return t.cos() * x_t - t.sin() * sigma_d * self.F0(x_t / sigma_d, backup)
@@ -121,6 +127,7 @@ class ScaledContinuousCM(
         # shortcut
         batch_size, *_ = sample.shape
         sigma_d = self.scheduler.sigma_d
+        device = sample.device
         # sample
         if prior is None:
             prior = torch.randn_like(sample)
@@ -128,12 +135,12 @@ class ScaledContinuousCM(
             # shortcut
             p_std, p_mean = self.scheduler.p_std, self.scheduler.p_std
             # sample from log-normal
-            rw_t = (torch.randn(batch_size) * p_std + p_mean).exp()
+            rw_t = (torch.randn(batch_size, device=device) * p_std + p_mean).exp()
             # [T], in range[0, pi/2]
             t = (rw_t / sigma_d).atan()
         else:
             # scale into range[0, pi/2]
-            t = t * np.pi * 0.5
+            t = t.to(device) * np.pi * 0.5
             # compute a reciprocal of the prior weighting term from the given t
             rw_t = t.tan() * sigma_d
         # [B, ...], `self.noise` automatically scale the prior with `sigma_d`
@@ -165,8 +172,12 @@ class ScaledContinuousCM(
         normalized_tangent = cos_mul_grad / (
             cos_mul_grad.norm(p=2, dim=rdim, keepdim=True) + 0.1
         )
+        r = 1.0
+        if self._tangent_warmup:
+            r = self._steps / self._tangent_warmup
+            self._steps += 1
         # [B]
-        mse = (estim - F - normalized_tangent).square().mean(dim=rdim)
+        mse = (estim - F - r * normalized_tangent).square().mean(dim=rdim)
         # [B], adaptive weighting
         logvar = self._ada_weight.forward(_t).squeeze(dim=-1)
         # [B]
@@ -203,7 +214,7 @@ class ScaledContinuousCM(
         # [B, ...], scale in range [0, pi/2]
         t = (t * np.pi * 0.5).view([bsize] + [1] * (x_0.dim() - 1))
         # [B, ...]
-        return t.cos() * x_0 + t.sin() * prior * self.scheduler.sigma_d
+        return t.cos().to(x_0) * x_0 + t.sin().to(x_0) * prior * self.scheduler.sigma_d
 
 
 class TrigFlow(ScaledContinuousCM):
@@ -236,7 +247,7 @@ class TrigFlow(ScaledContinuousCM):
         # [B, ...]
         _t = t.view([batch_size] + [1] * (x_t.dim() - 1))
         # [B, ...]
-        v_t = _t.cos() * prior * sigma_d - _t.sin() * sample
+        v_t = _t.cos().to(x_t) * prior * sigma_d - _t.sin().to(x_t) * sample
         # [B, ...]
         estim = sigma_d * self.F0.forward(x_t / sigma_d, t)
         return (estim - v_t).square().mean()
@@ -249,6 +260,7 @@ class TrigFlow(ScaledContinuousCM):
         sigma_min: float = 0.02,
         sigma_max: float | None = None,
         rho: float = 7,
+        dtype: torch.dtype = torch.float64,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """EDM Sampler, reference git+NVlabs/edm/generate.py."""
         batch_size, *_ = prior.shape
@@ -262,14 +274,14 @@ class TrigFlow(ScaledContinuousCM):
         # [T]
         t_steps = (
             sigma_max ** (1 / rho)
-            + torch.arange(steps, dtype=torch.float64, device=prior.device)
+            + torch.arange(steps, dtype=dtype, device=prior.device)
             / (steps - 1)
             * (sigma_min ** (1 / rho) - sigma_max ** (1 / rho))
         ) ** rho
         # [T + 1]
         t_steps = F.pad(t_steps, [0, 1], "constant", 0.0)
         # Main sampling loop.
-        x, xs = prior.to(torch.float64) * t_steps[0], []
+        x, xs = prior.to(dtype) * t_steps[0], []
         for i in range(steps):
             # [], []
             t_cur, t_next = t_steps[i : i + 2]
@@ -278,7 +290,7 @@ class TrigFlow(ScaledContinuousCM):
             # [B]
             _t = t_hat.repeat(batch_size)
             # [B, ...]
-            denoised = self.predict(x_hat.to(p), _t).to(torch.float64)
+            denoised = self.predict(x_hat.to(p), _t).to(dtype)
             d_cur = (x_hat - denoised) / t_hat
             x = x_hat + (t_next - t_hat) * d_cur
             # 2nd-order midpoint correction
@@ -286,7 +298,7 @@ class TrigFlow(ScaledContinuousCM):
                 # [B]
                 _t = t_next.repeat(batch_size)
                 # [B, ...]
-                denoised = self.predict(x.to(p), _t).to(torch.float64)
+                denoised = self.predict(x.to(p), _t).to(dtype)
                 d_prime = (x - denoised) / t_next
                 x = x_hat + (t_next - t_hat) * (0.5 * d_cur + 0.5 * d_prime)
 
