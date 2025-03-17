@@ -50,11 +50,12 @@ def reproduce_trigflow_cifar10():
     )
     model = TrigFlow(backbone, ScaledContinuousCMScheduler())
 
+    n_gpus = 2
     # timestamp
     stamp = datetime.now(timezone(timedelta(hours=9))).strftime("%Y.%m.%dKST%H:%M:%S")
     trainer = Cifar10Trainer(
         model,
-        batch_size=256,  # => 512-sized batch on 2 3090 GPUs
+        batch_size=512 // n_gpus,
         lr=0.001,
         betas=(0.9, 0.999),
         eps=1e-8,
@@ -65,10 +66,14 @@ def reproduce_trigflow_cifar10():
     trainer.scheduler = InverseSquareRootScheduler(
         trainer.optim,
         0.001,
-        t_ref=7000,
+        t_ref=70000,
     )
 
-    trainer.train(total=400000, mixed_precision="no", gradient_accumulation_steps=1)
+    trainer.train(
+        total=400000 * n_gpus,
+        mixed_precision="no",
+        gradient_accumulation_steps=1,
+    )
 
 
 if __name__ == "__main__":
