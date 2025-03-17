@@ -77,6 +77,7 @@ class Cifar10Trainer:
         mixed_precision: str = "no",  # "fp16"
         gradient_accumulation_steps: int = 1,
         num_samples: int = 10,
+        load_ckpt: Path | None = None,
     ):
         self.model.train()
         accelerator = Accelerator(
@@ -95,6 +96,15 @@ class Cifar10Trainer:
         scheduler = None
         if self.scheduler is not None:
             scheduler = accelerator.prepare(self.scheduler)
+
+        if load_ckpt is not None:
+            torch.serialization.add_safe_globals(
+                [
+                    np._core.multiarray.scalar,
+                    np.dtypes.Float64DType,
+                ]
+            )
+            accelerator.load_state(load_ckpt.absolute().as_posix())
 
         _model = model
         if isinstance(_model, torch._dynamo.OptimizedModule):
