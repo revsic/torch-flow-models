@@ -30,6 +30,27 @@ class ScaledContinuousCMScheduler(ContinuousScheduler):
         return (t * np.pi * 0.5).sin().square()
 
 
+class _AdaptiveWeights(nn.Linear):
+    def __init__(
+        self, channels: int = 128, max_period: int = 10000, scale: float = 1.0
+    ):
+        assert channels % 2 == 0
+        super().__init__(channels, 1)
+        denom = -np.log(max_period) / (channels // 2 - 1)
+        # [C // 2]
+        freqs = torch.exp(denom * torch.arange(0, channels // 2, dtype=torch.float32))
+        self.register_buffer("freqs", freqs, persistent=False)
+        self.scale = scale
+
+    def forward(self, input: torch.Tensor) -> torch.Tensor:
+        assert isinstance(self.freqs, torch.Tensor)
+        # [T, E // 2]
+        args = input[:, None].float() * self.freqs * self.scale
+        # [T, E] > [T, 1] > [T]
+        weight = super().forward(torch.cat([args.cos(), args.sin()], dim=-1))
+        return weight.to(input.dtype).squeeze(dim=-1)
+
+
 class ScaledContinuousCM(
     nn.Module,
     ScoreModel,
@@ -45,13 +66,14 @@ class ScaledContinuousCM(
         module: nn.Module,
         scheduler: ScaledContinuousCMScheduler,
         tangent_warmup: int | None = None,
+        _ada_weight_size: int = 128,
     ):
         super().__init__()
         self.F0 = module
-        self._ada_weight = nn.Linear(1, 1)
-        self._tangent_warmup, self._steps = tangent_warmup, 0
         self.scheduler = scheduler
         self.sampler = MultistepConsistencySampler()
+        self._tangent_warmup, self._steps = tangent_warmup, 0
+        self._ada_weight = _AdaptiveWeights(_ada_weight_size)
 
     def forward(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         """Estimate the `x_0` from the given `x_t`.
@@ -158,11 +180,14 @@ class ScaledContinuousCM(
             )
             F: torch.Tensor = F.detach()
             jvp: torch.Tensor = jvp.detach()
+        # warmup scaler
+        r = 1.0
+        if self._tangent_warmup:
+            r = min(self._steps / self._tangent_warmup, 1.0)
+            self._steps += 1
         # df/dt = -t.cos() * (sigma_d * F(x_t/sigma_d, t) - dx_t/dt) - t.sin() * (x_t + sigma_d * dF/dt)
-        cos_mul_grad = (
-            -_t.cos().square() * (sigma_d * F - v_t)
-            - _t.sin() * _t.cos() * x_t
-            - sigma_d * jvp
+        cos_mul_grad = -_t.cos().square() * (sigma_d * F - v_t) - r * (
+            _t.sin() * _t.cos() * x_t + sigma_d * jvp
         )
         # [B, ...]
         estim: torch.Tensor = self.F0.forward(x_t / sigma_d, t)
@@ -172,16 +197,12 @@ class ScaledContinuousCM(
         normalized_tangent = cos_mul_grad / (
             cos_mul_grad.norm(p=2, dim=rdim, keepdim=True) + 0.1
         )
-        r = 1.0
-        if self._tangent_warmup:
-            r = self._steps / self._tangent_warmup
-            self._steps += 1
         # [B]
-        mse = (estim - F - r * normalized_tangent).square().mean(dim=rdim)
+        mse = (estim - F - normalized_tangent).square().mean(dim=rdim)
         # [B], adaptive weighting
-        logvar = self._ada_weight.forward(_t).squeeze(dim=-1)
-        # [B]
-        loss = (mse * logvar.exp() - logvar) / rw_t.clamp_min(1e-7)
+        logvar = self._ada_weight.forward(_t)
+        # [B], different with
+        loss = mse * logvar.exp() - logvar
         # []
         return loss.mean()
 
@@ -282,23 +303,23 @@ class TrigFlow(ScaledContinuousCM):
         t_steps = F.pad(t_steps, [0, 1], "constant", 0.0)
         # Main sampling loop.
         x, xs = prior.to(dtype) * t_steps[0], []
-        for i in range(steps):
+        for i in verbose(range(steps)):
             # [], []
             t_cur, t_next = t_steps[i : i + 2]
             # [B, ...], []
             x_hat, t_hat = x, t_cur
             # [B]
             _t = t_hat.repeat(batch_size)
-            # [B, ...]
-            denoised = self.predict(x_hat.to(p), _t).to(dtype)
+            # [B, ...], rescale t-steps into range[0, 1]
+            denoised = self.predict(x_hat.to(p), _t / sigma_max).to(dtype)
             d_cur = (x_hat - denoised) / t_hat
             x = x_hat + (t_next - t_hat) * d_cur
             # 2nd-order midpoint correction
             if i < steps - 1:
                 # [B]
                 _t = t_next.repeat(batch_size)
-                # [B, ...]
-                denoised = self.predict(x.to(p), _t).to(dtype)
+                # [B, ...], rescale t-steps into range[0, 1]
+                denoised = self.predict(x.to(p), _t / sigma_max).to(dtype)
                 d_prime = (x - denoised) / t_next
                 x = x_hat + (t_next - t_hat) * (0.5 * d_cur + 0.5 * d_prime)
 
