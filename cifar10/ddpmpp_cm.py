@@ -1,4 +1,6 @@
 # https://github.com/openai/consistency_models
+from typing import Literal
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -239,12 +241,12 @@ class QKVAttentionLegacy(nn.Module):
         # [B, 3 x C, H x W]
         b, _, t = qkv.shape
         # [B, 3 x C, H x W] > [B, 3, N, C // N, H x W] > [3, B, N, H x W, C // N] > 3 x [B, N, H x W, C // N]
-        q, k, v = qkv.view(b, 3, self.num_heads, -1, t).permute(1, 0, 2, 4, 3)
+        q, k, v = qkv.view(b, 3, self.n_heads, -1, t).permute(1, 0, 2, 4, 3)
         # C // N
         *_, ch = q.shape
         # [B, N, H x W, H x W]
         weight = torch.softmax(
-            (q @ k) * (ch**-0.5), dim=-1
+            (q @ k.transpose(-1, -2)) * (ch**-0.5), dim=-1
         )  # 1 / match.sqrt(math.sqrt(ch))
         # [B, N, H x W, C // N] > [B, N, C // N, H x W] > [B, C, H x W]
         return (weight @ v).permute(0, 1, 3, 2).view(b, -1, t)
@@ -267,6 +269,7 @@ class UNetModel(nn.Module):
         use_double_norm: bool = False,
         resblock_updown: bool = False,
         temb_scale: float = 1.0,
+        attn_module: Literal["flash", "legacy"] = "flash",
         attn_dtype: torch.dtype = torch.float16,
     ):
         super().__init__()
@@ -304,7 +307,12 @@ class UNetModel(nn.Module):
                 _ch = int(mult * model_channels)
                 if _ds in attention_resolutions:
                     layers.append(
-                        AttentionBlock(_ch, num_heads=num_heads, dtype=attn_dtype)
+                        AttentionBlock(
+                            _ch,
+                            attention_type=attn_module,
+                            num_heads=num_heads,
+                            dtype=attn_dtype,
+                        )
                     )
 
                 self.input_blocks.append(TimestepEmbedSequential(*layers))
@@ -336,7 +344,12 @@ class UNetModel(nn.Module):
                 use_scale_shift_norm=use_scale_shift_norm,
                 use_double_norm=use_double_norm,
             ),
-            AttentionBlock(_ch, num_heads=num_heads, dtype=attn_dtype),
+            AttentionBlock(
+                _ch,
+                num_heads=num_heads,
+                attention_type=attn_module,
+                dtype=attn_dtype,
+            ),
             ResBlock(
                 _ch,
                 time_embed_dim,
@@ -363,7 +376,12 @@ class UNetModel(nn.Module):
                 _ch = int(model_channels * mult)
                 if _ds in attention_resolutions:
                     layers.append(
-                        AttentionBlock(_ch, num_heads=num_heads, dtype=attn_dtype)
+                        AttentionBlock(
+                            _ch,
+                            num_heads=num_heads,
+                            attention_type=attn_module,
+                            dtype=attn_dtype,
+                        )
                     )
 
                 if level and i == num_res_blocks:
