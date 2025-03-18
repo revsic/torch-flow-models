@@ -335,8 +335,8 @@ class TrigFlow(ScaledContinuousCM):
         # [T + 1]
         t_steps = F.pad(t_steps, [0, 1], "constant", 0.0)
         # Main sampling loop.
-        x, xs = prior.to(dtype) * t_steps[0], []
-        for i in range(steps):
+        x, xs = prior.to(dtype), []
+        for i in verbose(range(steps)):
             # [], []
             t_cur, t_next = t_steps[i : i + 2]
             # [B, ...], []
