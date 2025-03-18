@@ -271,7 +271,15 @@ class TrigFlow(ScaledContinuousCM):
         v_t = _t.cos().to(x_t) * prior * sigma_d - _t.sin().to(x_t) * sample
         # [B, ...]
         estim = sigma_d * self.F0.forward(x_t / sigma_d, t)
-        return (estim - v_t).square().mean()
+        # reducing dimension
+        rdim = [i + 1 for i in range(x_t.dim() - 1)]
+        # [B]
+        mse = (estim - v_t).square().mean(dim=rdim)
+        # [B], adaptive weighting
+        logvar = self._ada_weight.forward(_t)
+        # [B], different with
+        loss = mse * logvar.exp() - logvar
+        return loss.mean()
 
     def sample(
         self,
@@ -279,7 +287,7 @@ class TrigFlow(ScaledContinuousCM):
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
         sigma_min: float = 0.02,
-        sigma_max: float | None = None,
+        sigma_max: float = np.pi * 0.5,
         rho: float = 7,
         dtype: torch.dtype = torch.float64,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
@@ -287,12 +295,12 @@ class TrigFlow(ScaledContinuousCM):
         batch_size, *_ = prior.shape
         # assign default values
         steps = steps or 18
-        sigma_max = sigma_max or self.scheduler.sigma_d
+        sigma_d = self.scheduler.sigma_d
         if verbose is None:
             verbose = lambda x: x
         # sample parameter for moving device
         p = next(self.parameters())
-        # [T]
+        # [T], pi/2(=sigma_max) to 0.02(=sigma_min)
         t_steps = (
             sigma_max ** (1 / rho)
             + torch.arange(steps, dtype=dtype, device=prior.device)
@@ -302,7 +310,7 @@ class TrigFlow(ScaledContinuousCM):
         # [T + 1]
         t_steps = F.pad(t_steps, [0, 1], "constant", 0.0)
         # Main sampling loop.
-        x, xs = prior.to(dtype) * t_steps[0], []
+        x, xs = prior.to(dtype), []
         for i in verbose(range(steps)):
             # [], []
             t_cur, t_next = t_steps[i : i + 2]
@@ -311,17 +319,15 @@ class TrigFlow(ScaledContinuousCM):
             # [B]
             _t = t_hat.repeat(batch_size)
             # [B, ...], rescale t-steps into range[0, 1]
-            denoised = self.predict(x_hat.to(p), _t / sigma_max).to(dtype)
-            d_cur = (x_hat - denoised) / t_hat
-            x = x_hat + (t_next - t_hat) * d_cur
+            d_cur = sigma_d * self.F0.forward(x_hat.to(p) / sigma_d, _t).to(dtype)
+            x = torch.cos(t_hat - t_next) * x_hat - torch.sin(t_hat - t_next) * d_cur
             # 2nd-order midpoint correction
             if i < steps - 1:
                 # [B]
                 _t = t_next.repeat(batch_size)
                 # [B, ...], rescale t-steps into range[0, 1]
-                denoised = self.predict(x.to(p), _t / sigma_max).to(dtype)
-                d_prime = (x - denoised) / t_next
-                x = x_hat + (t_next - t_hat) * (0.5 * d_cur + 0.5 * d_prime)
+                d_prime = sigma_d * self.F0.forward(x.to(p) / sigma_d, _t).to(dtype)
+                x = torch.cos(t_hat - t_next) * x_hat - torch.sin(t_hat - t_next) * (0.5 * d_cur + 0.5 * d_prime)
 
             xs.append(x)
 
