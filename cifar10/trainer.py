@@ -1,15 +1,37 @@
 from pathlib import Path
+from typing import Protocol
 
 import numpy as np
 import torch
 import torchvision
 import torchvision.transforms as transforms
 from accelerate import Accelerator
+from safetensors.torch import load_model, save_model
 from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 
 from fid import compute_fid_with_model
 from flowmodels.basis import ScoreModel, ODEModel
+from flowmodels.utils import EMASupports
+
+
+class Loggable(Protocol):
+    def log(self, msg: str): ...
+
+
+class DefaultLogger(Loggable):
+    def __init__(self):
+        try:
+            from loguru import logger
+        except ImportError:
+            logger = None
+        self.logger = logger
+
+    def log(self, msg: str, level: str = "INFO"):
+        if self.logger is not None:
+            self.logger.log(level, msg)
+        else:
+            print(f"[{level}] {msg}")
 
 
 class Cifar10Trainer:
@@ -25,6 +47,7 @@ class Cifar10Trainer:
         pin_memory: bool = True,
         dataset_path: Path = Path("./cifar-10-batches-py/.."),
         workspace: Path = Path("./workspace"),
+        _logger: Loggable = DefaultLogger(),
     ):
         self.model = model
         self.workspace = workspace
@@ -34,7 +57,7 @@ class Cifar10Trainer:
             transform=transforms.Compose(
                 [
                     transforms.ToTensor(),
-                    transforms.RandomHorizontalFlip(p=0.5),
+                    # transforms.RandomHorizontalFlip(p=0.5),
                 ]
             ),
         )
@@ -70,6 +93,7 @@ class Cifar10Trainer:
         workspace.mkdir(parents=True, exist_ok=True)
         self.train_log = SummaryWriter(workspace / "logs" / "train")
         self.test_log = SummaryWriter(workspace / "logs" / "test")
+        self._logger = _logger
 
     def train(
         self,
@@ -78,6 +102,8 @@ class Cifar10Trainer:
         gradient_accumulation_steps: int = 1,
         num_samples: int = 10,
         load_ckpt: Path | None = None,
+        half_life_ema: int | None = None,
+        _load_ema_ckpt: Path | None = None,
     ):
         self.model.train()
         accelerator = Accelerator(
@@ -112,8 +138,26 @@ class Cifar10Trainer:
         if isinstance(_model, torch.nn.parallel.DistributedDataParallel):
             _model = model.module
 
+        ema, mu = None, 0.0
+        if half_life_ema:
+            ema = EMASupports(_model)
+            # compute batch size again for multi-gpu settings
+            batch_size = len(self.trainset) // len(train_loader)
+            self._logger.log(f"Estimated batch-size: {batch_size}")
+            # compute ema factor
+            steps = half_life_ema / batch_size
+            mu = 0.5 ** (1 / steps)
+            self._logger.log(
+                f"Estimated mu: {mu:.4f}, and halved({mu ** int(steps):.2f}) in {int(steps)} steps"
+            )
+
+            if _load_ema_ckpt:
+                load_model(
+                    ema.module, _load_ema_ckpt, device=next(ema.parameters()).device
+                )
+
         step = 0
-        epochs = -(-total // len(self.train_loader))
+        epochs = -(-total // len(train_loader))
         for epoch in tqdm(range(epochs), disable=not _main_proc):
             with tqdm(train_loader, leave=False, disable=not _main_proc) as pbar:
                 for sample, labels in pbar:
@@ -128,6 +172,9 @@ class Cifar10Trainer:
 
                     step += 1
                     if _main_proc:
+                        if ema is not None:
+                            ema.update(_model, mu)
+
                         pbar.set_postfix({"loss": loss.item(), "step": step})
                         self.train_log.add_scalar("loss", loss.item(), step)
 
@@ -189,9 +236,19 @@ class Cifar10Trainer:
                         num_samples=10000,
                         sampling_batch_size=self.test_loader.batch_size,
                         device=accelerator.device,
+                        scaler=lambda x: (
+                            (x - x.amin()) / (x.amax() - x.amin()) * 255
+                        ).to(torch.uint8),
                     )
                     self.test_log.add_scalar("metric/fid10k", fid, step)
 
                 accelerator.save_state(self.workspace / "ckpt" / str(epoch))
+                save_model(
+                    ema.module,
+                    self.workspace / "ckpt" / str(epoch) / "_ema.safetensors",
+                )
 
         accelerator.save_state(self.workspace / "ckpt" / str(epoch))
+        save_model(
+            ema.module, self.workspace / "ckpt" / str(epoch) / "_ema.safetensors"
+        )
