@@ -2,7 +2,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 import torch
-from safetensors.torch import load_model
+from safetensors.torch import load_file
 
 from ddpmpp_cm import UNetModel
 from flowmodels.sct import ScaledContinuousCM, ScaledContinuousCMScheduler
@@ -34,12 +34,11 @@ def reproduce_sct_cifar10():
         ScaledContinuousCMScheduler(),
         tangent_warmup=10000,
     )
-    load_model(
-        model,
-        filename=Path(
-            "./test.workspace/trigflow-cifar10/2025.03.15KST22:04:04/ckpt/2040/model.safetensors"
-        ),
+    state_dict = load_file(
+        "./test.workspace/trigflow-cifar10/2025.03.15KST22:04:04/ckpt/2040/model.safetensors",
     )
+    state_dict.pop("_ada_weight.weight")
+    model.load_state_dict(state_dict, strict=False)
 
     n_gpus = 2
     # timestamp
@@ -64,9 +63,10 @@ def reproduce_sct_cifar10():
     )
 
     trainer.train(
-        total=400000 * n_gpus,
+        total=400000,
         mixed_precision="no",
         gradient_accumulation_steps=1,
+        half_life_ema=500000,
     )
 
 
