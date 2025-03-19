@@ -48,7 +48,13 @@ def reproduce_trigflow_cifar10():
         resblock_updown=False,
         temb_scale=0.02,
     )
-    model = TrigFlow(backbone, ScaledContinuousCMScheduler())
+    model = TrigFlow(
+        backbone,
+        ScaledContinuousCMScheduler(
+            p_mean=-1.0,
+            p_std=1.4,
+        ),
+    )
 
     n_gpus = 2
     # timestamp
@@ -70,7 +76,7 @@ def reproduce_trigflow_cifar10():
     )
 
     trainer.train(
-        total=400000 * n_gpus,
+        total=400000,
         mixed_precision="no",
         gradient_accumulation_steps=1,
     )
