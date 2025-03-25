@@ -250,6 +250,7 @@ class TrigFlow(ScaledContinuousCM):
         # shortcut
         batch_size, *_ = sample.shape
         sigma_d = self.scheduler.sigma_d
+        device = sample.device
         # sample
         if prior is None:
             prior = torch.randn_like(sample)
@@ -257,7 +258,7 @@ class TrigFlow(ScaledContinuousCM):
             # shortcut
             p_std, p_mean = self.scheduler.p_std, self.scheduler.p_std
             # sample from log-normal
-            rw_t = (torch.randn(batch_size) * p_std + p_mean).exp()
+            rw_t = (torch.randn(batch_size, device=device) * p_std + p_mean).exp()
             # [T], in range[0, pi/2]
             t = (rw_t / sigma_d).atan()
         else:
@@ -268,13 +269,11 @@ class TrigFlow(ScaledContinuousCM):
         # [B, ...]
         _t = t.view([batch_size] + [1] * (x_t.dim() - 1))
         # [B, ...]
-        v_t = _t.cos().to(x_t) * prior * sigma_d - _t.sin().to(x_t) * sample
-        # [B, ...]
-        estim = sigma_d * self.F0.forward(x_t / sigma_d, t)
+        estim = _t.cos() * x_t - _t.sin() * sigma_d * self.F0.forward(x_t / sigma_d, t)
         # reducing dimension
         rdim = [i + 1 for i in range(x_t.dim() - 1)]
         # [B]
-        mse = (estim - v_t).square().mean(dim=rdim)
+        mse = (estim - sample).square().mean(dim=rdim)
         # [B], adaptive weighting
         logvar = self._ada_weight.forward(_t)
         # [B], different with
@@ -290,6 +289,7 @@ class TrigFlow(ScaledContinuousCM):
         sigma_max: float = np.pi * 0.5,
         rho: float = 7,
         dtype: torch.dtype = torch.float64,
+        correction: bool = True,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """EDM Sampler, reference git+NVlabs/edm/generate.py."""
         batch_size, *_ = prior.shape
@@ -298,6 +298,10 @@ class TrigFlow(ScaledContinuousCM):
         sigma_d = self.scheduler.sigma_d
         if verbose is None:
             verbose = lambda x: x
+        # shortcut
+        if steps <= 1:
+            x = self.predict(prior, torch.full((batch_size,), np.pi * 0.5))
+            return x, [x]
         # sample parameter for moving device
         p = next(self.parameters())
         # [T], pi/2(=sigma_max) to 0.02(=sigma_min)
@@ -322,7 +326,7 @@ class TrigFlow(ScaledContinuousCM):
             d_cur = sigma_d * self.F0.forward(x_hat.to(p) / sigma_d, _t).to(dtype)
             x = torch.cos(t_hat - t_next) * x_hat - torch.sin(t_hat - t_next) * d_cur
             # 2nd-order midpoint correction
-            if i < steps - 1:
+            if i < steps - 1 and correction:
                 # [B]
                 _t = t_next.repeat(batch_size)
                 # [B, ...], rescale t-steps into range[0, 1]
