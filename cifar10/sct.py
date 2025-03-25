@@ -35,17 +35,19 @@ def reproduce_sct_cifar10():
         tangent_warmup=10000,
     )
     state_dict = load_file(
-        "./test.workspace/trigflow-cifar10/2025.03.15KST22:04:04/ckpt/2040/model.safetensors",
+        # "./test.workspace/trigflow-cifar10/2025.03.15KST22:04:04/ckpt/2040/model.safetensors",
+        "./test.workspace/sct-cifar10/2025.03.19KST10:09:10/ckpt/0/model.safetensors"
     )
-    state_dict.pop("_ada_weight.weight")
+    # state_dict.pop("_ada_weight.weight")
     model.load_state_dict(state_dict, strict=False)
 
-    n_gpus = 2
+    n_gpus = 1
+    n_grad_accum = 2
     # timestamp
     stamp = datetime.now(timezone(timedelta(hours=9))).strftime("%Y.%m.%dKST%H:%M:%S")
     trainer = Cifar10Trainer(
         model,
-        batch_size=512 // n_gpus,
+        batch_size=512 // n_gpus // n_grad_accum,
         shuffle=True,
         dataset_path=Path("./"),
         workspace=Path(f"./test.workspace/sct-cifar10/{stamp}"),
@@ -59,13 +61,13 @@ def reproduce_sct_cifar10():
     trainer.scheduler = InverseSquareRootScheduler(
         trainer.optim,
         0.0001,
-        t_ref=35000,
+        t_ref=4000,
     )
 
     trainer.train(
-        total=400000,
+        total=400000 * n_grad_accum,
         mixed_precision="no",
-        gradient_accumulation_steps=1,
+        gradient_accumulation_steps=n_grad_accum,
         half_life_ema=500000,
     )
 
