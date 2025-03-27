@@ -69,7 +69,9 @@ class ConstantVelocityConsistencyModels(
             src = torch.randn_like(sample)
         if t is None:
             # sample from log-normal
-            rw_t = (torch.randn(batch_size, device=device) * self.p_std + self.p_std).exp()
+            rw_t = (
+                torch.randn(batch_size, device=device) * self.p_std + self.p_std
+            ).exp()
             # [T], in range[0, 1]
             t = rw_t.atan() / np.pi * 2
         # [B, ...]
