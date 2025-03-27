@@ -158,7 +158,9 @@ class ResBlock(TimestepBlock):
             scale, shift = torch.chunk(emb_out, 2, dim=1)
             scale = scale + 1
             if self.use_double_norm:
-                _pixel_norm = lambda p: p * (p.square().mean(dim=1, keepdims=True) + 1e-8).rsqrt()
+                _pixel_norm = (
+                    lambda p: p * (p.square().mean(dim=1, keepdims=True) + 1e-8).rsqrt()
+                )
                 scale = _pixel_norm(scale)
                 shift = _pixel_norm(shift)
             h = self.out_norm(h) * scale + shift
