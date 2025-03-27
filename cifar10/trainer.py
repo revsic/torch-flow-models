@@ -103,6 +103,7 @@ class Cifar10Trainer:
         num_samples: int = 10,
         load_ckpt: Path | None = None,
         half_life_ema: int | None = None,
+        _eval_interval: int = 20,
         _load_ema_ckpt: Path | None = None,
     ):
         self.model.train()
@@ -199,7 +200,7 @@ class Cifar10Trainer:
                                 "common/lr", self.optim.param_groups[0]["lr"], step
                             )
 
-            if _main_proc and epoch % (epochs // 20) == 0:
+            if _main_proc and epoch % (epochs // _eval_interval) == 0:
                 with torch.no_grad():
                     losses = [
                         _model.loss(bunch * 2 - 1).item()
