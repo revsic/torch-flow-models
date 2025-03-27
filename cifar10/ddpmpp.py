@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 
 def get_timestep_embedding(
-    timesteps: torch.Tensor, dim: int, max_positions: int = 10000
+    timesteps: torch.Tensor, dim: int, max_positions: int = 10000, scale: float = 1.0
 ) -> torch.Tensor:
     assert dim % 2 == 0
     emb = np.log(max_positions) / (dim // 2 - 1)
@@ -16,13 +16,16 @@ def get_timestep_embedding(
         torch.arange(dim // 2, dtype=torch.float32, device=timesteps.device) * -emb
     )
     # [T, E // 2]
-    emb = timesteps[:, None] * emb[None]
+    emb = timesteps[:, None] * emb[None] * scale
     # [T, E]
     return torch.cat([emb.sin(), emb.cos()], axis=1)
 
 
 def default_init(
-    *shape: int, scale: float = 1.0, dtype: torch.dtype = torch.float32
+    *shape: int,
+    scale: float = 1.0,
+    dtype: torch.dtype = torch.float32,
+    generator: torch.Generator | None = None,
 ) -> torch.Tensor:
     out_size, in_size = shape[0], shape[1]
     field_size = math.prod(shape) / in_size / out_size
@@ -30,7 +33,8 @@ def default_init(
     denominator = (fan_in + fan_out) / 2
     if scale == 0.0:
         scale = 1e-10
-    return (torch.rand(*shape, dtype=dtype) * 2 - 1) * np.sqrt(3 * scale / denominator)
+    rand = torch.rand(*shape, dtype=dtype, generator=generator)
+    return (rand * 2 - 1) * np.sqrt(3 * scale / denominator)
 
 
 class NIN(nn.Module):
@@ -44,12 +48,36 @@ class NIN(nn.Module):
         return x @ self.W.T + self.b
 
 
+class GroupNorm(nn.GroupNorm):
+    def __init__(self, *args, force_on_32bit: bool = False, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.force_on_32bit = force_on_32bit
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if not self.force_on_32bit:
+            return super().forward(x)
+
+        return F.group_norm(
+            x.float(),
+            self.num_groups,
+            self.weight.float(),
+            self.bias.float(),
+            self.eps,
+        ).to(x.dtype)
+
+
 class AttnBlockpp(nn.Module):
     def __init__(
-        self, channels: int, skip_rescale: bool = True, init_scale: float = 0.0
+        self,
+        channels: int,
+        skip_rescale: bool = True,
+        init_scale: float = 0.0,
+        _force_norm_32bit: bool = False,
     ):
         super().__init__()
-        self.groupnorm = nn.GroupNorm(min(channels // 4, 32), channels, eps=1e-6)
+        self.groupnorm = GroupNorm(
+            min(channels // 4, 32), channels, eps=1e-6, force_on_32bit=_force_norm_32bit
+        )
 
         self.proj_q = NIN(channels, channels)
         self.proj_k = NIN(channels, channels)
@@ -116,22 +144,36 @@ class ResnetBlockBigGANpp(nn.Module):
         dropout: float = 0.1,
         init_scale: float = 0.0,
         skip_rescale: bool = True,
+        use_shift_scale_norm: bool = False,
+        use_double_norm: bool = False,
+        _force_norm_32bit: bool = False,
     ):
         super().__init__()
-        self.groupnorm_1 = nn.GroupNorm(
-            min(in_channels // 4, 32), in_channels, eps=1e-6
+        self.groupnorm_1 = GroupNorm(
+            min(in_channels // 4, 32),
+            in_channels,
+            eps=1e-6,
+            force_on_32bit=_force_norm_32bit,
         )
 
         self.up = up
         self.down = down
+        self.use_shift_scale_norm = use_shift_scale_norm
+        self.use_double_norm = use_double_norm
+
         self.proj_1 = Conv3x3(in_channels, out_channels)
-        self.proj_temb = nn.Linear(emb_channels, out_channels)
+        self.proj_temb = nn.Linear(
+            emb_channels, out_channels * 2 if use_shift_scale_norm else out_channels
+        )
         with torch.no_grad():
             self.proj_temb.weight.copy_(default_init(out_channels, emb_channels))
             self.proj_temb.bias.zero_()
 
-        self.groupnorm_2 = nn.GroupNorm(
-            min(out_channels // 4, 32), out_channels, eps=1e-6
+        self.groupnorm_2 = GroupNorm(
+            min(out_channels // 4, 32),
+            out_channels,
+            eps=1e-6,
+            force_on_32bit=_force_norm_32bit,
         )
         self.dropout = nn.Dropout(dropout)
 
@@ -145,6 +187,7 @@ class ResnetBlockBigGANpp(nn.Module):
     def _upsample(self, x: torch.Tensor, factor: int = 2) -> torch.Tensor:
         B, C, H, W = x.shape
         # [B, C, H, 1, W, 1] > [B, C, H, F, W, F] > [B, C, H x F, W x F]
+        ## FYI. F.interpolate(mode="nearest") on openai/consistency_models
         return (
             x[..., None, :, None]
             .tile(1, 1, 1, factor, 1, factor)
@@ -152,9 +195,7 @@ class ResnetBlockBigGANpp(nn.Module):
         )
 
     def _downsample(self, x: torch.Tensor, factor: int = 2) -> torch.tensor:
-        B, C, H, W = x.shape
-        # [B, C, H // F, F, W // F, F] > [B, C, H // F, W // F]
-        return x.view(B, C, H // factor, factor, W // factor, factor).mean(dim=[3, 5])
+        return F.avg_pool2d(x, factor, factor)
 
     def forward(
         self, x: torch.Tensor, temb: torch.Tensor | None = None
@@ -169,9 +210,25 @@ class ResnetBlockBigGANpp(nn.Module):
         # [B, C, H', W']
         h = self.proj_1.forward(h)
         if temb is not None:
-            h = h + self.proj_temb.forward(temb)[..., None, None]
+            temb = self.proj_temb.forward(temb)[..., None, None]
+            if not self.use_shift_scale_norm:
+                # [B, C, 1, 1] > [B,, C, H', W']
+                h = self.groupnorm_2.forward(h + temb)
+            else:
+                # [B, C, 1, 1], [B, C, 1, 1]
+                scale, shift = temb.chunk(2, dim=1)
+                scale = scale + 1
+                if self.use_double_norm:
+                    _pixel_norm = (
+                        lambda p: p
+                        * (p.square().mean(dim=1, keepdims=True) + 1e-8).rsqrt()
+                    )
+                    scale = _pixel_norm(scale)
+                    shift = _pixel_norm(shift)
+                # [B, C, H', W']
+                h = self.groupnorm_2.forward(h) * scale + shift
         # [B, C, H', W']
-        h = F.silu(self.groupnorm_2.forward(h))
+        h = F.silu(h)
         # [B, C, H', W']
         h = self.proj_2.forward(self.dropout(h))
         if self.proj_res:
@@ -194,9 +251,14 @@ class DDPMpp(nn.Module):
         init_scale: float = 0.0,
         skip_rescale: bool = True,
         dropout: float = 0.1,
+        pe_scale: float = 1.0,
+        use_shift_scale_norm: bool = False,
+        use_double_norm: bool = False,
+        _force_norm_32bit: bool = False,
     ):
         super().__init__()
         self.nf = nf
+        self.pe_scale = pe_scale
 
         _temb_channels = nf * 4
         self.proj_temb = nn.Sequential(
@@ -225,6 +287,9 @@ class DDPMpp(nn.Module):
                             dropout=dropout,
                             init_scale=init_scale,
                             skip_rescale=skip_rescale,
+                            use_shift_scale_norm=use_shift_scale_norm,
+                            use_double_norm=use_double_norm,
+                            _force_norm_32bit=_force_norm_32bit,
                         )
                         for i in range(num_res_blocks)
                     ]
@@ -238,7 +303,12 @@ class DDPMpp(nn.Module):
             {
                 str(i): nn.ModuleList(
                     [
-                        AttnBlockpp(channels, skip_rescale, init_scale)
+                        AttnBlockpp(
+                            channels,
+                            skip_rescale,
+                            init_scale,
+                            _force_norm_32bit=_force_norm_32bit,
+                        )
                         for _ in range(num_res_blocks)
                     ]
                 )
@@ -257,6 +327,9 @@ class DDPMpp(nn.Module):
                     dropout=dropout,
                     init_scale=init_scale,
                     skip_rescale=skip_rescale,
+                    use_shift_scale_norm=use_shift_scale_norm,
+                    use_double_norm=use_double_norm,
+                    _force_norm_32bit=_force_norm_32bit,
                 )
                 for channels in _channels[:-1]
             ]
@@ -271,11 +344,16 @@ class DDPMpp(nn.Module):
                     dropout=dropout,
                     init_scale=init_scale,
                     skip_rescale=skip_rescale,
+                    use_shift_scale_norm=use_shift_scale_norm,
+                    use_double_norm=use_double_norm,
+                    _force_norm_32bit=_force_norm_32bit,
                 )
                 for _ in range(2)
             ]
         )
-        self.bottleneck_attn = AttnBlockpp(_bottleneck, skip_rescale, init_scale)
+        self.bottleneck_attn = AttnBlockpp(
+            _bottleneck, skip_rescale, init_scale, _force_norm_32bit=_force_norm_32bit
+        )
 
         _backwards = _channels[::-1]
         self.up_blocks = nn.ModuleList(
@@ -294,6 +372,9 @@ class DDPMpp(nn.Module):
                             dropout=dropout,
                             init_scale=init_scale,
                             skip_rescale=skip_rescale,
+                            use_shift_scale_norm=use_shift_scale_norm,
+                            use_double_norm=use_double_norm,
+                            _force_norm_32bit=_force_norm_32bit,
                         )
                         for i in range(num_res_blocks + 1)
                     ]
@@ -309,7 +390,12 @@ class DDPMpp(nn.Module):
         _resolutions = _resolutions[::-1]
         self.up_attns = nn.ModuleDict(
             {
-                str(i): AttnBlockpp(channels, skip_rescale, init_scale)
+                str(i): AttnBlockpp(
+                    channels,
+                    skip_rescale,
+                    init_scale,
+                    _force_norm_32bit=_force_norm_32bit,
+                )
                 for i, (res, channels) in enumerate(zip(_resolutions, _backwards))
                 if res in attn_resolutions
             }
@@ -325,20 +411,25 @@ class DDPMpp(nn.Module):
                     dropout=dropout,
                     init_scale=init_scale,
                     skip_rescale=skip_rescale,
+                    use_shift_scale_norm=use_shift_scale_norm,
+                    use_double_norm=use_double_norm,
+                    _force_norm_32bit=_force_norm_32bit,
                 )
                 for channels in _backwards[:-1]
             ]
         )
 
         self.postproc = nn.Sequential(
-            nn.GroupNorm(min(_fst // 4, 32), _fst, eps=1e-6),
+            GroupNorm(
+                min(_fst // 4, 32), _fst, eps=1e-6, force_on_32bit=_force_norm_32bit
+            ),
             nn.SiLU(),
             Conv3x3(_fst, in_channels, init_scale),
         )
 
     def forward(self, x: torch.Tensor, time_cond: torch.Tensor) -> torch.Tensor:
         # [B, E]
-        temb = get_timestep_embedding(time_cond.to(x), self.nf)
+        temb = get_timestep_embedding(time_cond.to(x), self.nf, scale=self.pe_scale)
         # [B, E x 4]
         temb = self.proj_temb(temb)
 
