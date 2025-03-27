@@ -162,11 +162,10 @@ class ResnetBlockBigGANpp(nn.Module):
         self.use_double_norm = use_double_norm
 
         self.proj_1 = Conv3x3(in_channels, out_channels)
-        self.proj_temb = nn.Linear(
-            emb_channels, out_channels * 2 if use_shift_scale_norm else out_channels
-        )
+        _out_channels = out_channels * 2 if use_shift_scale_norm else out_channels
+        self.proj_temb = nn.Linear(emb_channels, _out_channels)
         with torch.no_grad():
-            self.proj_temb.weight.copy_(default_init(out_channels, emb_channels))
+            self.proj_temb.weight.copy_(default_init(_out_channels, emb_channels))
             self.proj_temb.bias.zero_()
 
         self.groupnorm_2 = GroupNorm(
