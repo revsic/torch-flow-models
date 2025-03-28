@@ -244,12 +244,14 @@ class Cifar10Trainer:
                     self.test_log.add_scalar("metric/fid10k", fid, step)
 
                 accelerator.save_state(self.workspace / "ckpt" / str(epoch))
-                save_model(
-                    ema.module,
-                    self.workspace / "ckpt" / str(epoch) / "_ema.safetensors",
-                )
+                if ema:
+                    save_model(
+                        ema.module,
+                        self.workspace / "ckpt" / str(epoch) / "_ema.safetensors",
+                    )
 
         accelerator.save_state(self.workspace / "ckpt" / str(epoch))
-        save_model(
-            ema.module, self.workspace / "ckpt" / str(epoch) / "_ema.safetensors"
-        )
+        if ema:
+            save_model(
+                ema.module, self.workspace / "ckpt" / str(epoch) / "_ema.safetensors"
+            )
