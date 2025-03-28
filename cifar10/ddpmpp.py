@@ -426,6 +426,8 @@ class DDPMpp(nn.Module):
             Conv3x3(_fst, in_channels, init_scale),
         )
 
+        self._debug_purpose = {}
+
     def forward(self, x: torch.Tensor, time_cond: torch.Tensor) -> torch.Tensor:
         # [B, E]
         temb = get_timestep_embedding(time_cond.to(x), self.nf, scale=self.pe_scale)
@@ -460,4 +462,14 @@ class DDPMpp(nn.Module):
             if i < len(self.upsamplers):
                 h = self.upsamplers[i].forward(h, temb)
 
-        return self.postproc(h)
+        output = self.postproc(h)
+
+        with torch.no_grad():
+            self._debug_purpose["ddpmpp/before_postproc"] = (
+                h.square().mean().sqrt().detach().cpu().item()
+            )
+            self._debug_purpose["ddpmpp/after_postproc"] = (
+                output.square().mean().sqrt().detach().cpu().item()
+            )
+
+        return output
