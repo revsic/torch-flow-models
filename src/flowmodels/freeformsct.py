@@ -1,6 +1,5 @@
 from typing import Callable, Iterable, Self
 
-import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -68,7 +67,7 @@ class _LearnableInterpolant(nn.Module):
         dsigma = self.c * sigma * (1 - gamma_sigmoid) * dgamma
         if not with_2nd:
             return gamma, alpha, sigma, dgamma, dalpha, dsigma
-        
+
         ddgamma = self._2nd_fn(t)
         ddalpha = -self.c * (
             dalpha * (1 - m_gamma_sigmoid) * dgamma
@@ -78,7 +77,7 @@ class _LearnableInterpolant(nn.Module):
         ddsigma = self.c * (
             dsigma * (1 - gamma_sigmoid) * dgamma
             - sigma * gamma_sigmoid * (1 - gamma_sigmoid) * dgamma.square()
-            * sigma * (1 - gamma) * ddgamma
+            + sigma * (1 - gamma_sigmoid) * ddgamma
         )
         return (
             gamma, alpha, sigma, dgamma, dalpha, dsigma, ddgamma, ddalpha, ddsigma,
@@ -87,7 +86,7 @@ class _LearnableInterpolant(nn.Module):
     def interp(self, x: torch.Tensor, e: torch.Tensor, t: torch.Tensor):
         b, = t.shape
         rdim = [b] + [1] * (x.dim() - 1)
-        _, alpha, sigma = self.coeff(self.forward(t))
+        _, alpha, sigma = self.coeff(t)
         return alpha.view(rdim) * x + sigma.view(rdim) * e
 
     def velocity(self, x: torch.Tensor, e: torch.Tensor, t: torch.Tensor):
@@ -102,7 +101,7 @@ class _LearnableInterpolant(nn.Module):
         _, alpha, sigma, _, dalpha, dsigma = [
             tensor.view(rdim) for tensor in self.coeff(t, with_1st=True)
         ]
-        return (sigma * v_t - dsigma * x_t) / (sigma * dalpha - alpha * dsigma).clamp_min(1e-8)
+        return (sigma * v_t - dsigma * x_t) / (sigma * dalpha - alpha * dsigma)
 
     def grad(
         self,
@@ -200,21 +199,6 @@ class FreeformCT(
             t = torch.rand(batch_size, device=device)
         # [B, ...], `self.noise` automatically scale the prior with `sigma_d`
         x_t = self._interpolant.interp(sample, prior, t)
-        with torch.no_grad():
-            td = (t - 1e-5).clamp_min(0)
-            teacher = self.forward(
-                self._interpolant.interp(sample, prior, td),
-                td
-            )
-        rdim = [i + 1 for i in range(x_t.dim() - 1)]
-        mse = (teacher - self.forward(x_t, t)).square().mean(rdim) / 1e-5
-        # # [B], adaptive weighting
-        # logvar = self._ada_weight.forward(t)
-        # # [B], different with
-        # loss = mse * logvar.exp() - logvar
-        # []
-        return loss.mean()
-
         # [B, ...]
         v_t = self._interpolant.velocity(sample, prior, t)
         with torch.no_grad():
