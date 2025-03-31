@@ -165,7 +165,7 @@ class Testbed(nn.Module, SamplingSupports):
         # plot histogram
         if prior is None:
             prior = torch.randn(n, *gt.shape[1:])
-        with torch.inference_mode():
+        with torch.no_grad():
             x_ts = [
                 x_t for step in steps for x_t, _ in (self.sample(prior, step, verbose),)
             ]
@@ -178,7 +178,7 @@ class Testbed(nn.Module, SamplingSupports):
         _xticks, _ = plt.xticks()
 
         # plt.trajectory
-        with torch.inference_mode():
+        with torch.no_grad():
             x_trajs = [
                 x_ts
                 for step in steps
