@@ -1,8 +1,8 @@
-from copy import deepcopy
 from typing import Callable, Iterable, Protocol
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from flowmodels.basis import (
     ForwardProcessSupports,
@@ -15,6 +15,10 @@ from flowmodels.cm import MultistepConsistencySampler
 
 
 class DMDSupports(ForwardProcessSupports, SamplingSupports, ScoreSupports, Protocol):
+    pass
+
+
+class DMD2Supports(ForwardProcessSupports, ScoreSupports, Protocol):
     pass
 
 
@@ -107,7 +111,7 @@ class DistributionMatchingDistillation(
             batch_size: the size of the batch.
             prior: [FloatLike; [B, ...]], the samples from the prior distribution.
         Returns:
-            TBD
+            lists of generator losses and fake score losses.
         """
         if verbose is None:
             verbose = lambda x: x
@@ -160,12 +164,110 @@ class DistributionMatchingDistillation(
 
         return g_losses, s_losses
 
-    def dmd2(self):
+    _DEFAULT_DMD2_TIME_SAMPLER = lambda s: 0.25 * torch.randint(1, 4 + 1, (s,))
+
+    def dmd2(
+        self,
+        teacher: DMD2Supports,
+        discriminator: nn.Module,
+        optim_g: torch.optim.Optimizer,
+        optim_s: torch.optim.Optimizer,
+        optim_d: torch.optim.Optimizer,
+        training_steps: int,
+        batch_size: int,
+        samples: torch.Tensor,
+        prior: torch.Tensor,
+        verbose: Callable[[range], Iterable] | None = None,
+        _score_updates: int = 5,
+        _time_sampler: Callable[[int], torch.Tensor] = _DEFAULT_DMD2_TIME_SAMPLER,
+    ) -> tuple[list[float], list[float], list[float]]:
         """
         Improved Distribution Matching Distillation for Fast Image Synthesis
         Adversarial Score identity Distillation: Rapidly Surpassing the Teacher in One Step
+
+        Args:
+            teacher: the target score model.
+            discriminator: the diffusion-gan discriminator.
+            optim_g, optim_f, optim_d: optimizers constructed
+                with `self.generator.parameters()`, `self.fake_score.parameters()` and `discriminator.parameters()`.
+            training_steps: the number of the training steps.
+            batch_size: the size of the batch.
+            samples: [FloatLike; [B, ...]], the samples from the data distribution.
+            prior: [FloatLike; [B, ...]], the samples from the prior distribution.
+        Returns:
+            lists of generator losses, fake score losses and discriminator losses.
         """
-        ...
+        if verbose is None:
+            verbose = lambda x: x
+        # inherit teacher's forward process
+        self._noiser = teacher.noise
+
+        g_losses: list[float] = []
+        s_losses: list[float] = []
+        d_losses: list[float] = []
+        for i in verbose(range(training_steps)):
+            # two time-scale update rule
+            for _ in verbose(range(_score_updates)):
+                z = prior[torch.randint(0, len(prior), (batch_size,))]
+                with torch.inference_mode():
+                    # [B, ...]
+                    x = self.generator.forward(z)
+                # []
+                s_loss = self.fake_score.loss(x.detach())
+                # update fake score
+                s_loss.backward()
+                optim_s.step()
+                optim_s.zero_grad()
+
+                s_losses.append(s_loss.detach().item())
+
+            # discriminator updates
+            indices = torch.randint(0, len(prior), (batch_size,))
+            # [B, ...], [B, ...]
+            x_0, z = samples[indices], prior[indices]
+            with torch.inference_mode():
+                # [B, ...]
+                x = self.generator.forward(z)
+                # [B, ...]
+                real_t = teacher.noise(x_0, _r_t := _time_sampler(batch_size).to(x_0))
+                fake_t = teacher.noise(x, _f_t := _time_sampler(batch_size).to(x))
+            # log D(x_t, t) = discriminator.forward(x_t, t)
+            d_loss = (
+                F.softplus(discriminator.forward(real_t, _r_t)).mean()
+                + F.softplus(-discriminator.forward(fake_t, _f_t)).mean()
+            ) * 1e-2
+            d_loss.backward()
+            optim_d.step()
+            optim_d.zero_grad()
+
+            d_losses.append(d_loss.detach().item())
+
+            # generator loss
+            indices = torch.randint(0, len(prior), (batch_size,))
+            # [B, ...], [B, ...]
+            x_0, z = samples[indices], prior[indices]
+            # [B, ...]
+            x = self.generator.forward(z)
+            # [B]
+            t = _time_sampler(batch_size).to(x)
+            # [B, ...]
+            x_t = teacher.noise(x, t, prior=None)
+            # [B, ...]
+            with torch.inference_mode():
+                s_real = teacher.score(x_t, t)
+                s_fake = self.fake_score.score(x_t, t)
+            # update generator
+            _w = (x_0 - x).abs().mean().detach()
+            _dkl = (x * (s_fake - s_real).detach()).mean() / _w
+            _gan = F.softplus(discriminator.forward(x_t, t)).mean()
+            g_loss = _dkl + _gan * 3e-3
+            g_loss.backward()
+            optim_g.step()
+            optim_g.zero_grad()
+
+            g_losses.append(g_loss.detach().item())
+
+        return g_losses, s_losses, d_losses
 
     def fdmd(self):
         """One-step Diffusion Models with f-Divergence Distribution Matching"""
