@@ -31,7 +31,10 @@ def reproduce_sct_cifar10():
         ScaledContinuousCMScheduler(),
         tangent_warmup=10000,
     )
-    load_model(model, "/workspace/torch-flow-models/cifar10/test.workspace/trigflow-cifar10/2025.03.28KST10:32:18/ckpt/1340/model.safetensors")
+    load_model(
+        model,
+        "/workspace/torch-flow-models/cifar10/test.workspace/trigflow-cifar10/2025.03.28KST10:32:18/ckpt/1340/model.safetensors",
+    )
 
     n_gpus = 1
     n_grad_accum = 3

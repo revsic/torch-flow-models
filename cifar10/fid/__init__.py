@@ -2,6 +2,7 @@ import sys
 
 import pickle
 from pathlib import Path
+from PIL import Image
 from typing import Callable
 
 import numpy as np
@@ -86,6 +87,7 @@ def compute_fid_with_model(
     scaler: Callable[[torch.Tensor], torch.Tensor] = (
         lambda x: ((x + 1) * 127.5).to(torch.uint8)
     ),
+    _save_images: Path | None = None,
 ) -> float:
 
     class _SyntheticDataset(torch.utils.data.IterableDataset):
@@ -93,7 +95,7 @@ def compute_fid_with_model(
             return num_samples
 
         def __iter__(self):
-            images = []
+            images, _id = [], 0
             generator = torch.Generator(device).manual_seed(0)
             for _ in range(num_samples):
                 if not images:
@@ -109,6 +111,12 @@ def compute_fid_with_model(
                         verbose=lambda x: tqdm(x, leave=False),
                     )
                     images = [*scaler(sampled)]
+                    if _save_images:
+                        for image in images:
+                            _id += 1
+                            Image.fromarray(
+                                image.detach().cpu().permute(1, 2, 0).numpy()
+                            ).save(_save_images / f"{_id}.png")
                 yield images.pop()
 
     return compute_fid(
