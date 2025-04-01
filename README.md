@@ -96,5 +96,8 @@ sampled, trajectory = model.sample(torch.randn(...))
     - Imports: `DistributionMatchingDisillation`, method `dmd2`.
     - Examples: [samples/dmd.ipynb](./samples/dmd.ipynb)
 - f-DMD[[arXiv:2502.15681](https://arxiv.org/abs/2502.15681)]: One-step Diffusion Models with f-Divergence Distribution Matching, Xu et al., 2025.
-    - Imports: `DistributionMatchingDisillation`, method `fdmd`.
+    - Imports: `DistributionMatchingDisillation`, method `dmd2` with `h="jensen-shannon"`
     - Examples: [samples/dmd.ipynb](./samples/dmd.ipynb)
+- ECT[[arXiv:2406.14548](https://arxiv.org/abs/2406.14548)]: Consistency Models Made Easy, Geng et al., 2024.
+    - Imports: `EasyConsistencyTraining`
+    - Examples: [samples/ect.ipynb](./samples/ect.ipynb)

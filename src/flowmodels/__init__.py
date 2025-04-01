@@ -13,6 +13,7 @@ from flowmodels.dsbm import (
     DiffusionSchrodingerBridgeMatching,
     ModifiedVanillaEulerSolver,
 )
+from flowmodels.ect import EasyConsistencyTraining, ECTScheduler
 from flowmodels.euler import VanillaEulerSolver
 from flowmodels.fireflow import FireFlowInversion, FireFlowSolver
 from flowmodels.flowedit import FlowEditSolver
