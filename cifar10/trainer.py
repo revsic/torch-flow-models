@@ -179,7 +179,9 @@ class Cifar10Trainer:
                         pbar.set_postfix({"loss": loss.item(), "step": step})
                         self.train_log.add_scalar("loss", loss.item(), step)
 
-                        for k, v in (getattr(_model, "_debug_purpose", None) or {}).items():
+                        for k, v in (
+                            getattr(_model, "_debug_purpose", None) or {}
+                        ).items():
                             self.train_log.add_scalar(f"debug-pupose:{k}", v, step)
 
                         with torch.no_grad():
