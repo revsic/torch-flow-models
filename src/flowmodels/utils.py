@@ -1,5 +1,5 @@
 import copy
-from typing import Self
+from typing import Generic, Self, TypeVar
 
 import torch
 import torch.nn as nn
@@ -11,8 +11,10 @@ from flowmodels.basis import (
     VelocitySupports,
 )
 
+T = TypeVar("T", bound=nn.Module)
 
-class EMASupports[T: nn.Module](nn.Module):
+
+class EMASupports(nn.Module, Generic[T]):
     def __init__(self, module: T):
         super().__init__()
         self.module = copy.deepcopy(module)
