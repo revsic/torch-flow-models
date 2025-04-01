@@ -1,4 +1,4 @@
-from typing import Callable, Iterable, Protocol
+from typing import Callable, Iterable, Literal, Protocol
 
 import torch
 import torch.nn as nn
@@ -166,6 +166,26 @@ class DistributionMatchingDistillation(
 
     _DEFAULT_DMD2_TIME_SAMPLER = lambda s: 0.25 * torch.randint(1, 4 + 1, (s,))
 
+    type _WEIGHTING_H = Callable[[torch.Tensor], torch.Tensor | float]
+
+    SUPPORTING_DIV: dict[str, _WEIGHTING_H] = {
+        "reverse-kl": lambda r: 1.0,
+        "softened-rkl": lambda r: 1 / (r + 1),
+        "jensen-shannon": lambda r: r / (r + 1),
+        "squared-helligner": lambda r: 0.25 * r**0.5,
+        "forward-kl": lambda r: r,
+        "jeffreys": lambda r: r + 1,
+    }
+
+    _SUPPORTING_DIV = Literal[
+        "reverse-kl",
+        "softened-rkl",
+        "jensen-shannon",
+        "squared-helligner",
+        "forward-kl",
+        "jeffreys",
+    ]
+
     def dmd2(
         self,
         teacher: DMD2Supports,
@@ -177,13 +197,15 @@ class DistributionMatchingDistillation(
         batch_size: int,
         samples: torch.Tensor,
         prior: torch.Tensor,
+        h: _SUPPORTING_DIV | _WEIGHTING_H = "reverse-kl",
         verbose: Callable[[range], Iterable] | None = None,
         _score_updates: int = 5,
         _time_sampler: Callable[[int], torch.Tensor] = _DEFAULT_DMD2_TIME_SAMPLER,
     ) -> tuple[list[float], list[float], list[float]]:
         """
-        Improved Distribution Matching Distillation for Fast Image Synthesis
-        Adversarial Score identity Distillation: Rapidly Surpassing the Teacher in One Step
+        Improved Distribution Matching Distillation for Fast Image Synthesis, Yin et al., 2024.[arXiv:2405.14867]
+        Adversarial Score identity Distillation: Rapidly Surpassing the Teacher in One Step, Zhou et al., 2024.[arXiv:2410.14919]
+        One-step Diffusion Models with f-Divergence Distribution Matching, Xu et al., 2025.[arXiv:2502.15681]
 
         Args:
             teacher: the target score model.
@@ -194,6 +216,7 @@ class DistributionMatchingDistillation(
             batch_size: the size of the batch.
             samples: [FloatLike; [B, ...]], the samples from the data distribution.
             prior: [FloatLike; [B, ...]], the samples from the prior distribution.
+            h: weighting term for f-divergence matching (default 1.0 for DMD2).
         Returns:
             lists of generator losses, fake score losses and discriminator losses.
         """
@@ -202,12 +225,15 @@ class DistributionMatchingDistillation(
         # inherit teacher's forward process
         self._noiser = teacher.noise
 
+        assert callable(h) or h in self.SUPPORTING_DIV
+        _h = h if callable(h) else lambda d: self.SUPPORTING_DIV[h](self._compute_r(d))
+
         g_losses: list[float] = []
         s_losses: list[float] = []
         d_losses: list[float] = []
         for i in verbose(range(training_steps)):
             # two time-scale update rule
-            for _ in verbose(range(_score_updates)):
+            for _ in range(_score_updates):
                 z = prior[torch.randint(0, len(prior), (batch_size,))]
                 with torch.inference_mode():
                     # [B, ...]
@@ -256,10 +282,12 @@ class DistributionMatchingDistillation(
             with torch.inference_mode():
                 s_real = teacher.score(x_t, t)
                 s_fake = self.fake_score.score(x_t, t)
+            # [B, ...]
+            d = discriminator.forward(x_t, t)
             # update generator
-            _w = (x_0 - x).abs().mean().detach()
-            _dkl = (x * (s_fake - s_real).detach()).mean() / _w
-            _gan = F.softplus(discriminator.forward(x_t, t)).mean()
+            match = _h(d) * (s_fake - s_real)
+            _dkl = (x * match.detach()).mean() / (x_0 - x).abs().mean().detach()
+            _gan = F.softplus(d).mean()
             g_loss = _dkl + _gan * 3e-3
             g_loss.backward()
             optim_g.step()
@@ -269,6 +297,14 @@ class DistributionMatchingDistillation(
 
         return g_losses, s_losses, d_losses
 
-    def fdmd(self):
-        """One-step Diffusion Models with f-Divergence Distribution Matching"""
-        ...
+    @classmethod
+    def _compute_r(cls, d: torch.Tensor) -> torch.Tensor:
+        # reformulate from softplus objective to logits
+        # log(1 + exp(d)) = log(d') => 1 + exp(d) = d'
+        # log(1 + exp(-d)) = log(1 - d') => 1 + exp(-d) = 1 - d'
+        # => exp(d) - exp(-d) = 2d' - 1
+        # => d' = 0.5 * (1 + exp(d) - exp(-d))
+        d = 0.5 * (1 + d.exp() - (-d).exp())
+        # for numerical stability
+        d[(d - 1.0).abs() < 1e-8] = 1 + 1e-8
+        return (1 - d) / d
