@@ -2,6 +2,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 import torch
+from safetensors.torch import load_model
 
 from ddpmpp import DDPMpp
 from flowmodels.sct import ScaledContinuousCM, ScaledContinuousCMScheduler
@@ -30,9 +31,10 @@ def reproduce_sct_cifar10():
         ScaledContinuousCMScheduler(),
         tangent_warmup=10000,
     )
+    load_model(model, "/workspace/torch-flow-models/cifar10/test.workspace/trigflow-cifar10/2025.03.28KST10:32:18/ckpt/1340/model.safetensors")
 
     n_gpus = 1
-    n_grad_accum = 2
+    n_grad_accum = 3
     # timestamp
     stamp = datetime.now(timezone(timedelta(hours=9))).strftime("%Y.%m.%dKST%H:%M:%S")
     trainer = Cifar10Trainer(
