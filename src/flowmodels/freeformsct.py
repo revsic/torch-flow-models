@@ -18,8 +18,8 @@ class _PositiveLinear(nn.Linear):
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         bias = self.bias
         if bias is not None:
-            bias = F.softplus(bias)
-        return F.linear(input, F.softplus(self.weight), bias)
+            bias = F.relu(bias)
+        return F.linear(input, F.relu(self.weight), bias)
 
 
 class _LearnableInterpolant(nn.Module):
@@ -31,9 +31,10 @@ class _LearnableInterpolant(nn.Module):
             nn.Sigmoid(),
             _PositiveLinear(h, 1),
         )
-        self.gamma_min = nn.Parameter(torch.tensor(-10.))
-        self.gamma_gap = nn.Parameter(torch.tensor(20.))
-        self.c = nn.Parameter(torch.tensor(0.5))
+        with torch.no_grad():
+            self.l1.weight.copy_(1)
+            self.l2[2].weight.zero_()
+        self.c = nn.Parameter(torch.tensor(1.))
         self.register_buffer("_placeholder", torch.tensor([0, 1]), persistent=False)
 
         self._grad_fn = torch.func.grad(lambda x: self.forward(x).sum())
@@ -44,7 +45,8 @@ class _LearnableInterpolant(nn.Module):
         t = torch.cat([self._placeholder, t], dim=0)
         l1 = self.l1.forward(t[:, None])
         g0, g1, gamma = (l1 + self.l2.forward(l1)).squeeze(dim=-1).split([1, 1, b])
-        return (gamma - g0) / (g1 - g0) * self.gamma_gap + self.gamma_min
+        gamma = (gamma - g0) / (g1 - g0).clamp_min(1e-8)
+        return gamma
 
     def coeff(
         self,
@@ -52,32 +54,25 @@ class _LearnableInterpolant(nn.Module):
         with_1st: bool = False,
         with_2nd: bool = False,
     ):
-        gamma = self.forward(t)
-        # sigmoid(-gamma) ** c
-        alpha = (-self.c * (1 + gamma.exp()).log()).exp()
-        # sigmoid(gamma) ** c
-        sigma = (-self.c * (1 + (-gamma).exp()).log()).exp()
+        c, gamma = F.relu(self.c), self.forward(t)
+        alpha, sigma = (1 - gamma) ** c, gamma ** c
         if not with_1st and not with_2nd:
             return gamma, alpha, sigma
 
         dgamma = self._grad_fn(t)
-        m_gamma_sigmoid = (-gamma).sigmoid()
-        gamma_sigmoid = gamma.sigmoid()
-        dalpha = -self.c * alpha * (1 - m_gamma_sigmoid) * dgamma
-        dsigma = self.c * sigma * (1 - gamma_sigmoid) * dgamma
+        dalpha = c * (1 - gamma) ** (c - 1) * dgamma
+        dsigma = c * gamma ** (c - 1) * dgamma
         if not with_2nd:
             return gamma, alpha, sigma, dgamma, dalpha, dsigma
 
         ddgamma = self._2nd_fn(t)
-        ddalpha = -self.c * (
-            dalpha * (1 - m_gamma_sigmoid) * dgamma
-            + alpha * m_gamma_sigmoid * (1 - m_gamma_sigmoid) * dgamma.square()
-            + alpha * (1 - m_gamma_sigmoid) * ddgamma
+        ddalpha = (
+            c * (c - 1) * (1 - gamma) ** (c - 2) * dgamma.square()
+            + c * (1 - gamma) ** (c - 1) * ddgamma
         )
-        ddsigma = self.c * (
-            dsigma * (1 - gamma_sigmoid) * dgamma
-            - sigma * gamma_sigmoid * (1 - gamma_sigmoid) * dgamma.square()
-            + sigma * (1 - gamma_sigmoid) * ddgamma
+        ddsigma = (
+            c * (c - 1) * gamma ** (c - 2) * dgamma.square()
+            + c * gamma ** (c - 1) * ddgamma
         )
         return (
             gamma, alpha, sigma, dgamma, dalpha, dsigma, ddgamma, ddalpha, ddsigma,
