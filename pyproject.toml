@@ -1,7 +1,7 @@
 [project]
 name = "torch-flow-models"
 version = "2025.02.18"
-requires-python = ">= 3.12.1"
+requires-python = ">= 3.11.11"
 dependencies = [
     "torch==2.6.0",
     "numpy==2.2.3"
