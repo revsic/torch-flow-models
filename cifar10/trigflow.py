@@ -62,7 +62,7 @@ def reproduce_trigflow_cifar10():
     trainer = Cifar10Trainer(
         model,
         batch_size=512 // n_gpus // n_grad_accum,
-        lr=0.001,
+        lr=0.0001,
         betas=(0.9, 0.999),
         eps=1e-8,
         shuffle=True,
@@ -71,7 +71,7 @@ def reproduce_trigflow_cifar10():
     )
     trainer.scheduler = InverseSquareRootScheduler(
         trainer.optim,
-        0.001,
+        0.0001,
         t_ref=70000,
     )
 
