@@ -61,6 +61,9 @@ class Testbed(nn.Module, SamplingSupports):
                 (_super,) = self._super
                 return _super
 
+            def parameters(self, recurse = True):
+                return self.base.parameters(recurse)
+
             def loss(
                 self,
                 sample: torch.Tensor,
