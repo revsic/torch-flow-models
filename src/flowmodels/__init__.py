@@ -17,6 +17,7 @@ from flowmodels.ect import EasyConsistencyTraining, ECTScheduler
 from flowmodels.euler import VanillaEulerSolver
 from flowmodels.fireflow import FireFlowInversion, FireFlowSolver
 from flowmodels.flowedit import FlowEditSolver
+from flowmodels.imm import InductivMomentMatching, IMMScheulder
 from flowmodels.instaflow import InstaFlow
 from flowmodels.ncsn import AnnealedLangevinDynamicsSampler, NCSN, NCSNScheduler
 from flowmodels.pfode import ProbabilityFlowODESampler

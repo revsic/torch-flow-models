@@ -101,3 +101,6 @@ sampled, trajectory = model.sample(torch.randn(...))
 - ECT[[arXiv:2406.14548](https://arxiv.org/abs/2406.14548)]: Consistency Models Made Easy, Geng et al., 2024.
     - Imports: `EasyConsistencyTraining`
     - Examples: [samples/ect.ipynb](./samples/ect.ipynb)
+- IMM[[arXiv:2503.07565](https://arxiv.org/abs/2503.07565)]: Inductive Moment Matching, Zhou et al., 2024.
+    - Imports: `InductivMomentMatching`
+    - Examples: [samples/imm.ipynb](./samples/imm.ipynb)
