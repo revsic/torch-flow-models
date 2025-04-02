@@ -155,7 +155,7 @@ class InductivMomentMatching(
     PredictionSupports,
     SamplingSupports,
 ):
-    """Inductive Moment Matching, Zhou et al., 2024.[arXiv:2503.07565]"""
+    """Inductive Moment Matching, Zhou et al., 2025.[arXiv:2503.07565]"""
 
     def __init__(self, module: nn.Module, scheduler: IMMScheulder):
         super().__init__()
