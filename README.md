@@ -89,3 +89,18 @@ sampled, trajectory = model.sample(torch.randn(...))
 - CAF[[arXiv:2411.00322](https://arxiv.org/abs/2411.00322)]: Constant Acceleration Flow, Park et al., 2024.
     - Imports: `ConstantAccelerationFlow`
     - Examples: [samples/caf.ipynb](./samples/caf.ipynb)
+- DMD[[arXiv:2311.18828](https://arxiv.org/abs/2311.18828)]: One-step Diffusion with Distribution Matching Distillation, Yin et al., 2023.
+    - Imports: `DistributionMatchingDisillation`, method `dmd`.
+    - Examples: [samples/dmd.ipynb](./samples/dmd.ipynb)
+- DMD2[[arXiv:2405.14867](https://arxiv.org/abs/2405.14867)]: Improved Distribution Matching Distillation for Fast Image Synthesis, Yin et al., 2024.
+    - Imports: `DistributionMatchingDisillation`, method `dmd2`.
+    - Examples: [samples/dmd.ipynb](./samples/dmd.ipynb)
+- f-DMD[[arXiv:2502.15681](https://arxiv.org/abs/2502.15681)]: One-step Diffusion Models with f-Divergence Distribution Matching, Xu et al., 2025.
+    - Imports: `DistributionMatchingDisillation`, method `dmd2` with `h="jensen-shannon"`
+    - Examples: [samples/dmd.ipynb](./samples/dmd.ipynb)
+- ECT[[arXiv:2406.14548](https://arxiv.org/abs/2406.14548)]: Consistency Models Made Easy, Geng et al., 2024.
+    - Imports: `EasyConsistencyTraining`
+    - Examples: [samples/ect.ipynb](./samples/ect.ipynb)
+- IMM[[arXiv:2503.07565](https://arxiv.org/abs/2503.07565)]: Inductive Moment Matching, Zhou et al., 2025.
+    - Imports: `InductivMomentMatching`
+    - Examples: [samples/imm.ipynb](./samples/imm.ipynb)
