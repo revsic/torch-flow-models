@@ -74,7 +74,7 @@ class ScaledContinuousCM(
         self.sampler = MultistepConsistencySampler()
         self._tangent_warmup, self._steps = tangent_warmup, 0
         self._ada_weight = _AdaptiveWeights(_ada_weight_size)
-    
+
     # debug purpose
     @property
     def _debug_purpose(self):
