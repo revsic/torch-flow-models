@@ -34,14 +34,14 @@ class _LearnableInterpolant(nn.Module):
         with torch.no_grad():
             self.l1.weight.copy_(1)
             self.l2[2].weight.zero_()
-        self.c = nn.Parameter(torch.tensor(1.))
+        self.c = nn.Parameter(torch.tensor(1.0))
         self.register_buffer("_placeholder", torch.tensor([0, 1]), persistent=False)
 
         self._grad_fn = torch.func.grad(lambda x: self.forward(x).sum())
         self._2nd_fn = torch.func.grad(lambda x: self._grad_fn(x).sum())
 
     def forward(self, t: torch.Tensor):
-        b, = t.shape
+        (b,) = t.shape
         t = torch.cat([self._placeholder, t], dim=0)
         l1 = self.l1.forward(t[:, None])
         g0, g1, gamma = (l1 + self.l2.forward(l1)).squeeze(dim=-1).split([1, 1, b])
@@ -55,12 +55,12 @@ class _LearnableInterpolant(nn.Module):
         with_2nd: bool = False,
     ):
         c, gamma = F.relu(self.c), self.forward(t)
-        alpha, sigma = (1 - gamma) ** c, gamma ** c
+        alpha, sigma = (1 - gamma) ** c, gamma**c
         if not with_1st and not with_2nd:
             return gamma, alpha, sigma
 
         dgamma = self._grad_fn(t)
-        dalpha = c * (1 - gamma) ** (c - 1) * dgamma
+        dalpha = -c * (1 - gamma) ** (c - 1) * dgamma
         dsigma = c * gamma ** (c - 1) * dgamma
         if not with_2nd:
             return gamma, alpha, sigma, dgamma, dalpha, dsigma
@@ -68,52 +68,63 @@ class _LearnableInterpolant(nn.Module):
         ddgamma = self._2nd_fn(t)
         ddalpha = (
             c * (c - 1) * (1 - gamma) ** (c - 2) * dgamma.square()
-            + c * (1 - gamma) ** (c - 1) * ddgamma
+            - c * (1 - gamma) ** (c - 1) * ddgamma
         )
         ddsigma = (
             c * (c - 1) * gamma ** (c - 2) * dgamma.square()
             + c * gamma ** (c - 1) * ddgamma
         )
         return (
-            gamma, alpha, sigma, dgamma, dalpha, dsigma, ddgamma, ddalpha, ddsigma,
+            gamma,
+            alpha,
+            sigma,
+            dgamma,
+            dalpha,
+            dsigma,
+            ddgamma,
+            ddalpha,
+            ddsigma,
         )
 
     def interp(self, x: torch.Tensor, e: torch.Tensor, t: torch.Tensor):
-        b, = t.shape
+        (b,) = t.shape
         rdim = [b] + [1] * (x.dim() - 1)
         _, alpha, sigma = self.coeff(t)
         return alpha.view(rdim) * x + sigma.view(rdim) * e
 
     def velocity(self, x: torch.Tensor, e: torch.Tensor, t: torch.Tensor):
-        b, = t.shape
+        (b,) = t.shape
         rdim = [b] + [1] * (x.dim() - 1)
         _, _, _, _, dalpha, dsigma = self.coeff(t, with_1st=True)
         return dalpha.view(rdim) * x + dsigma.view(rdim) * e
 
     def predict(self, x_t: torch.Tensor, v_t: torch.Tensor, t: torch.Tensor):
-        b, = t.shape
+        (b,) = t.shape
         rdim = [b] + [1] * (x_t.dim() - 1)
         _, alpha, sigma, _, dalpha, dsigma = [
             tensor.view(rdim) for tensor in self.coeff(t, with_1st=True)
         ]
-        return (sigma * v_t - dsigma * x_t) / (sigma * dalpha - alpha * dsigma)
+        return (dsigma * x_t - sigma * v_t) / (dsigma * alpha - dalpha * sigma)
 
     def grad(
         self,
         x_t: torch.Tensor,
         v_t: torch.Tensor,
-        a_t: torch.Tensor,
+        F: torch.Tensor,
+        dF: torch.Tensor,
         t: torch.Tensor,
     ) -> torch.Tensor:
-        b, = t.shape
+        (b,) = t.shape
         rdim = [b] + [1] * (x_t.dim() - 1)
         _, alpha, sigma, _, dalpha, dsigma, _, ddalpha, ddsigma = [
             tensor.view(rdim) for tensor in self.coeff(t, with_2nd=True)
         ]
+        nu = dsigma * alpha - sigma * dalpha
+        dnu = ddsigma * alpha - sigma * ddalpha
         return (
-            (sigma * a_t - ddsigma * x_t) * (sigma * dalpha - alpha * dsigma)
-            - (sigma * v_t - dsigma * x_t) * (sigma * ddalpha - ddsigma * alpha)
-        ) / (sigma * dalpha - alpha * dsigma).square().clamp_min(1e-7)
+            (ddsigma * x_t + dsigma * v_t - dsigma * F - sigma * dF) * nu
+            - dnu * (dsigma * x_t - sigma * F)
+        ) / nu.square().clamp_min(1e-7)
 
 
 class FreeformCT(
@@ -129,12 +140,14 @@ class FreeformCT(
         module: nn.Module,
         _ada_weight_size: int = 128,
         _hidden_interpolant: int = 1024,
+        _eps: float = 1e-3,
     ):
         super().__init__()
         self.F0 = module
         self.sampler = MultistepConsistencySampler()
         self._ada_weight = _AdaptiveWeights(_ada_weight_size)
         self._interpolant = _LearnableInterpolant(_hidden_interpolant)
+        self._eps = _eps
 
     def forward(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         """Estimate the `x_0` from the given `x_t`.
@@ -192,6 +205,8 @@ class FreeformCT(
             prior = torch.randn_like(sample)
         if t is None:
             t = torch.rand(batch_size, device=device)
+        # for numerical stability
+        t = t.clamp(self._eps, 1 - self._eps)
         # [B, ...], `self.noise` automatically scale the prior with `sigma_d`
         x_t = self._interpolant.interp(sample, prior, t)
         # [B, ...]
@@ -205,7 +220,7 @@ class FreeformCT(
             F: torch.Tensor = F.detach()
             jvp: torch.Tensor = jvp.detach()
             # df/dt
-            grad = self._interpolant.grad(x_t, F, jvp, t)
+            grad = self._interpolant.grad(x_t, v_t, F, jvp, t)
             f = self._interpolant.predict(x_t, F, t)
         # reducing dimension
         rdim = [i + 1 for i in range(x_t.dim() - 1)]
@@ -229,7 +244,26 @@ class FreeformCT(
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """Forward to the MultistepConsistencySampler."""
-        return self.sampler.sample(self, prior, steps, verbose)
+        # T
+        steps = steps or 4
+        # single-step sampler
+        batch_size, *_ = prior.shape
+        if steps <= 1:
+            x_0 = self.predict(prior, torch.ones(batch_size) - self._eps)
+            return x_0, [x_0]
+        # multi-step sampler
+        x_t, x_ts = prior, []
+        if verbose is None:
+            verbose = lambda x: x
+        for t in verbose(range(steps, 0, -1)):
+            # [B]
+            t = torch.full((batch_size,), t / steps, dtype=torch.float32)
+            # [B, ...]
+            x_0 = self.predict(x_t, t.clamp(self._eps, 1 - self._eps))
+            # [B, ...]
+            x_t = self.noise(x_0, (t - 1 / steps).clamp(self._eps, 1 - self._eps))
+            x_ts.append(x_t)
+        return x_t, x_ts
 
     def noise(
         self,
