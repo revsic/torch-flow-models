@@ -17,22 +17,26 @@ DEFAULT_INCEPTION_PATH = Path("./inception-2015-12-05.pkl")
 DEFAULT_REFERECNE_PATH = Path("./cifar10-32x32.npz")
 
 
-def calculate_inception_stats(
-    dataloader: torch.utils.data.DataLoader,
-    inception: Path = DEFAULT_INCEPTION_PATH,
-    feature_dim: int = 2048,
-    device: torch.device | str = "cuda:0",
-):
+def _load_inception(inception: Path = DEFAULT_INCEPTION_PATH):
     import fid.torch_utils as torch_utils
     import fid.dnnlib as dnnlib
 
     sys.modules.update({"torch_utils": torch_utils, "dnnlib": dnnlib})
     # https://api.ngc.nvidia.com/v2/models/nvidia/research/stylegan3/versions/1/files/metrics/inception-2015-12-05.pkl
     with open(inception or DEFAULT_INCEPTION_PATH, "rb") as f:
-        detector = pickle.load(f).to(device)
+        detector = pickle.load(f)
     sys.modules.pop("torch_utils")
     sys.modules.pop("dnnlib")
+    return detector
 
+
+def calculate_inception_stats(
+    dataloader: torch.utils.data.DataLoader,
+    inception: Path = DEFAULT_INCEPTION_PATH,
+    feature_dim: int = 2048,
+    device: torch.device | str = "cuda:0",
+):
+    detector = _load_inception(inception).to(device)
     mu = torch.zeros([feature_dim], dtype=torch.float64, device=device)
     sigma = torch.zeros([feature_dim, feature_dim], dtype=torch.float64, device=device)
     for images in tqdm(dataloader, leave=False):
