@@ -163,6 +163,18 @@ class FreeformCT(
         self._interpolant = _LearnableInterpolant(_hidden_interpolant, dt=_eps)
         self._eps = _eps
 
+        self._debug_from_loss = {}
+
+    # debug purpose
+    @property
+    def _debug_purpose(self):
+        return {
+            "ffsct/i": self._interpolant.i.item(),
+            "ffsct/c": self._interpolant.c.item(),
+            **self._debug_from_loss,
+            **getattr(self.F0, "_debug_purpose", {}),
+        }
+
     def forward(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         """Estimate the `x_0` from the given `x_t`.
         Args:
@@ -240,7 +252,7 @@ class FreeformCT(
         # reducing dimension
         rdim = [i + 1 for i in range(x_t.dim() - 1)]
         # normalized tangent
-        normalized_tangent = grad / (grad.norm(p=2, dim=rdim, keepdim=True) + 0.1)
+        normalized_tangent = grad / (g_norm := (grad.norm(p=2, dim=rdim, keepdim=True) + 0.1))
         # [B, ...]
         estim: torch.Tensor = self._interpolant.predict(x_t, self.F0.forward(x_t, t), c)
         # [B]
@@ -249,6 +261,12 @@ class FreeformCT(
         logvar = self._ada_weight.forward(t)
         # [B], different with
         loss = mse * logvar.exp() - logvar
+        with torch.no_grad():
+            self._debug_from_loss = {
+                "ffsct/mse": mse.mean().item(),
+                "ffsct/logvar": logvar.mean().item(),
+                "ffsct/tangent-norm": g_norm.mean().item(),
+            }
         # []
         return loss.mean()
 
