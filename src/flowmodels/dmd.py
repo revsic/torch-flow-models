@@ -22,6 +22,9 @@ class DMD2Supports(ForwardProcessSupports, ScoreSupports, Protocol):
     pass
 
 
+_WEIGHTING_H = Callable[[torch.Tensor], torch.Tensor | float]
+
+
 class DistributionMatchingDistillation(
     nn.Module, ForwardProcessSupports, PredictionSupports
 ):
@@ -165,8 +168,6 @@ class DistributionMatchingDistillation(
         return g_losses, s_losses
 
     _DEFAULT_DMD2_TIME_SAMPLER = lambda s: 0.25 * torch.randint(1, 4 + 1, (s,))
-
-    type _WEIGHTING_H = Callable[[torch.Tensor], torch.Tensor | float]
 
     SUPPORTING_DIV: dict[str, _WEIGHTING_H] = {
         "reverse-kl": lambda r: 1.0,
