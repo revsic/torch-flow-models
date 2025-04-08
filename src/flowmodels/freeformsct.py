@@ -222,7 +222,7 @@ class FreeformCT(
         # for numerical stability
         t = t.clamp(self._eps, 1 - self._eps)
         c = self._interpolant.coeff(t, with_2nd=True)
-        # [B, ...], `self.noise` automatically scale the prior with `sigma_d`
+        # [B, ...]
         x_t = self._interpolant.interp(sample, prior, c)
         # [B, ...]
         v_t = self._interpolant.velocity(sample, prior, c)
@@ -276,7 +276,9 @@ class FreeformCT(
             # [B, ...]
             x_0 = self.predict(x_t, t.clamp(self._eps, 1 - self._eps))
             # [B, ...]
-            x_t = self.noise(x_0, (t - 1 / steps).clamp(self._eps, 1 - self._eps))
+            x_t = self.noise(
+                x_0, (t - 1 / steps).clamp(self._eps, 1 - self._eps), prior
+            )
             x_ts.append(x_t)
         return x_t, x_ts
 
