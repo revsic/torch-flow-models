@@ -1,5 +1,7 @@
+from dataclasses import dataclass
 from typing import Callable, Iterable, Self
 
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -22,6 +24,19 @@ class _PositiveLinear(nn.Linear):
         return F.linear(input, F.relu(self.weight), bias)
 
 
+@dataclass
+class _Coeff:
+    g: torch.Tensor
+    a: torch.Tensor
+    s: torch.Tensor
+    dg: torch.Tensor | None = None
+    da: torch.Tensor | None = None
+    ds: torch.Tensor | None = None
+    ddg: torch.Tensor | None = None
+    dda: torch.Tensor | None = None
+    dds: torch.Tensor | None = None
+
+
 class _LearnableInterpolant(nn.Module):
     def __init__(self, h: int = 1024, dt: float = 1e-2):
         super().__init__()
@@ -33,14 +48,16 @@ class _LearnableInterpolant(nn.Module):
             _PositiveLinear(h, 1),
         )
         with torch.no_grad():
-            self.l1.weight.copy_(1)
-            self.l2[2].weight.mul_(1e-5)
-        self.c = nn.Parameter(torch.tensor(1.0))
+            self.l1.weight.copy_(torch.tensor(1.0))
+            self.l2[2].weight.mul_(1e-5)  # pyright: ignore
+        self.i = nn.Parameter(torch.tensor(0.5))
+        self.c = nn.Parameter(torch.tensor(0.75))
         self.register_buffer("_placeholder", torch.tensor([0, 1]), persistent=False)
 
     def forward(self, t: torch.Tensor):
         (b,) = t.shape
-        t = torch.cat([self._placeholder, t], dim=0)
+        t = torch.cat([self._placeholder, t], dim=0)  # pyright: ignore
+        t = self.i * t + (1 - self.i) * (np.pi * 0.5 * t).sin().square()
         l1 = self.l1.forward(t[:, None])
         g0, g1, gamma = (l1 + self.l2.forward(l1)).squeeze(dim=-1).split([1, 1, b])
         gamma = (gamma - g0) / (g1 - g0).clamp_min(1e-8)
@@ -51,18 +68,18 @@ class _LearnableInterpolant(nn.Module):
         t: torch.Tensor,
         with_1st: bool = False,
         with_2nd: bool = False,
-    ):
+    ) -> _Coeff:
         c, g = F.relu(self.c), self.forward(t)
         a, s = (1 - g) ** c, g**c
         if not with_1st and not with_2nd:
-            return g, a, s
+            return _Coeff(g, a, s)
 
         g_dt = self.forward(t + self.dt)
         dg = (g_dt - g) / self.dt
         da = -c * (1 - g) ** (c - 1) * dg
         ds = c * g ** (c - 1) * dg
         if not with_2nd:
-            return g, a, s, dg, da, ds
+            return _Coeff(g, a, s, dg, da, ds)
 
         g_2dt = self.forward(t + 2 * self.dt)
         ddg = (g_2dt - 2 * g_dt + g) * self.dt**-2
@@ -71,27 +88,39 @@ class _LearnableInterpolant(nn.Module):
             - c * (1 - g) ** (c - 1) * ddg
         )
         dds = c * (c - 1) * g ** (c - 2) * dg.square() + c * g ** (c - 1) * ddg
-        return g, a, s, dg, da, ds, ddg, dda, dds
+        return _Coeff(g, a, s, dg, da, ds, ddg, dda, dds)
 
-    def interp(self, x: torch.Tensor, e: torch.Tensor, t: torch.Tensor):
-        (b,) = t.shape
-        rdim = [b] + [1] * (x.dim() - 1)
-        _, alpha, sigma = self.coeff(t)
-        return alpha.view(rdim) * x + sigma.view(rdim) * e
+    def _broadcast(
+        self,
+        c: _Coeff | torch.Tensor,
+        ref: torch.Tensor,
+        with_1st: bool = False,
+        with_2nd: bool = False,
+    ) -> _Coeff:
+        b, *_ = ref.shape
+        rdim = [b] + [1] * (ref.dim() - 1)
+        if isinstance(c, torch.Tensor):
+            c = self.coeff(c, with_1st, with_2nd)
+        return _Coeff(
+            **{
+                k: (v.view(rdim) if v is not None else None)  # pyright: ignore
+                for k, v in vars(c).items()
+            }
+        )
 
-    def velocity(self, x: torch.Tensor, e: torch.Tensor, t: torch.Tensor):
-        (b,) = t.shape
-        rdim = [b] + [1] * (x.dim() - 1)
-        _, _, _, _, dalpha, dsigma = self.coeff(t, with_1st=True)
-        return dalpha.view(rdim) * x + dsigma.view(rdim) * e
+    def interp(self, x: torch.Tensor, e: torch.Tensor, c: _Coeff | torch.Tensor):
+        c = self._broadcast(c, ref=x)
+        return c.a * x + c.s * e
 
-    def predict(self, x_t: torch.Tensor, v_t: torch.Tensor, t: torch.Tensor):
-        (b,) = t.shape
-        rdim = [b] + [1] * (x_t.dim() - 1)
-        _, alpha, sigma, _, dalpha, dsigma = [
-            tensor.view(rdim) for tensor in self.coeff(t, with_1st=True)
-        ]
-        return (dsigma * x_t - sigma * v_t) / (dsigma * alpha - dalpha * sigma)
+    def velocity(self, x: torch.Tensor, e: torch.Tensor, c: _Coeff | torch.Tensor):
+        c = self._broadcast(c, ref=x, with_1st=True)
+        assert c.da is not None and c.ds is not None
+        return c.da * x + c.ds * e
+
+    def predict(self, x_t: torch.Tensor, v_t: torch.Tensor, c: _Coeff | torch.Tensor):
+        c = self._broadcast(c, ref=x_t, with_2nd=True)
+        assert c.da is not None and c.ds is not None
+        return (c.ds * x_t - c.s * v_t) / (c.ds * c.a - c.da * c.s)
 
     def grad(
         self,
@@ -99,18 +128,16 @@ class _LearnableInterpolant(nn.Module):
         v_t: torch.Tensor,
         F: torch.Tensor,
         dF: torch.Tensor,
-        t: torch.Tensor,
+        c: _Coeff | torch.Tensor,
     ) -> torch.Tensor:
-        (b,) = t.shape
-        rdim = [b] + [1] * (x_t.dim() - 1)
-        _, alpha, sigma, _, dalpha, dsigma, _, ddalpha, ddsigma = [
-            tensor.view(rdim) for tensor in self.coeff(t, with_2nd=True)
-        ]
-        nu = dsigma * alpha - sigma * dalpha
-        dnu = ddsigma * alpha - sigma * ddalpha
+        c = self._broadcast(c, ref=x_t, with_2nd=True)
+        assert c.da is not None and c.ds is not None
+        assert c.dda is not None and c.dds is not None
+        nu = c.ds * c.a - c.s * c.da
+        dnu = c.dds * c.a - c.s * c.dda
         return (
-            (ddsigma * x_t + dsigma * v_t - dsigma * F - sigma * dF) * nu
-            - dnu * (dsigma * x_t - sigma * F)
+            (c.dds * x_t + c.ds * v_t - c.ds * F - c.s * dF) * nu
+            - dnu * (c.ds * x_t - c.s * F)
         ) / nu.square().clamp_min(1e-7)
 
 
@@ -194,10 +221,11 @@ class FreeformCT(
             t = torch.rand(batch_size, device=device)
         # for numerical stability
         t = t.clamp(self._eps, 1 - self._eps)
+        c = self._interpolant.coeff(t, with_2nd=True)
         # [B, ...], `self.noise` automatically scale the prior with `sigma_d`
-        x_t = self._interpolant.interp(sample, prior, t)
+        x_t = self._interpolant.interp(sample, prior, c)
         # [B, ...]
-        v_t = self._interpolant.velocity(sample, prior, t)
+        v_t = self._interpolant.velocity(sample, prior, c)
         with torch.no_grad():
             F, jvp, *_ = torch.func.jvp(  # pyright: ignore [reportPrivateImportUsage]
                 EMASupports[Self].reduce(self, ema).F0.forward,
@@ -207,14 +235,14 @@ class FreeformCT(
             F: torch.Tensor = F.detach()
             jvp: torch.Tensor = jvp.detach()
             # df/dt
-            grad = self._interpolant.grad(x_t, v_t, F, jvp, t)
-            f = self._interpolant.predict(x_t, F, t)
+            grad = self._interpolant.grad(x_t, v_t, F, jvp, c)
+            f = self._interpolant.predict(x_t, F, c)
         # reducing dimension
         rdim = [i + 1 for i in range(x_t.dim() - 1)]
         # normalized tangent
         normalized_tangent = grad / (grad.norm(p=2, dim=rdim, keepdim=True) + 0.1)
         # [B, ...]
-        estim: torch.Tensor = self.forward(x_t, t)
+        estim: torch.Tensor = self._interpolant.predict(x_t, self.F0.forward(x_t, t), c)
         # [B]
         mse = (estim - f + normalized_tangent).square().mean(dim=rdim)
         # [B], adaptive weighting
