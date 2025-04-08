@@ -1,12 +1,13 @@
 """
-prdc 
+prdc
 Copyright (c) 2020-present NAVER Corp.
 MIT license
 """
+
 import numpy as np
 import sklearn.metrics
 
-__all__ = ['compute_prdc']
+__all__ = ["compute_prdc"]
 
 
 def compute_pairwise_distance(data_x, data_y=None):
@@ -20,7 +21,8 @@ def compute_pairwise_distance(data_x, data_y=None):
     if data_y is None:
         data_y = data_x
     dists = sklearn.metrics.pairwise_distances(
-        data_x, data_y, metric='euclidean', n_jobs=8)
+        data_x, data_y, metric="euclidean", n_jobs=8
+    )
     return dists
 
 
@@ -63,35 +65,38 @@ def compute_prdc(real_features, fake_features, nearest_k):
         dict of precision, recall, density, and coverage.
     """
 
-    print('Num real: {} Num fake: {}'
-          .format(real_features.shape[0], fake_features.shape[0]))
+    print(
+        "Num real: {} Num fake: {}".format(
+            real_features.shape[0], fake_features.shape[0]
+        )
+    )
 
     real_nearest_neighbour_distances = compute_nearest_neighbour_distances(
-        real_features, nearest_k)
+        real_features, nearest_k
+    )
     fake_nearest_neighbour_distances = compute_nearest_neighbour_distances(
-        fake_features, nearest_k)
-    distance_real_fake = compute_pairwise_distance(
-        real_features, fake_features)
+        fake_features, nearest_k
+    )
+    distance_real_fake = compute_pairwise_distance(real_features, fake_features)
 
     precision = (
-            distance_real_fake <
-            np.expand_dims(real_nearest_neighbour_distances, axis=1)
-    ).any(axis=0).mean()
+        (distance_real_fake < np.expand_dims(real_nearest_neighbour_distances, axis=1))
+        .any(axis=0)
+        .mean()
+    )
 
     recall = (
-            distance_real_fake <
-            np.expand_dims(fake_nearest_neighbour_distances, axis=0)
-    ).any(axis=1).mean()
+        (distance_real_fake < np.expand_dims(fake_nearest_neighbour_distances, axis=0))
+        .any(axis=1)
+        .mean()
+    )
 
-    density = (1. / float(nearest_k)) * (
-            distance_real_fake <
-            np.expand_dims(real_nearest_neighbour_distances, axis=1)
+    density = (1.0 / float(nearest_k)) * (
+        distance_real_fake < np.expand_dims(real_nearest_neighbour_distances, axis=1)
     ).sum(axis=0).mean()
 
     coverage = (
-            distance_real_fake.min(axis=1) <
-            real_nearest_neighbour_distances
+        distance_real_fake.min(axis=1) < real_nearest_neighbour_distances
     ).mean()
 
-    return dict(precision=precision, recall=recall,
-                density=density, coverage=coverage)
+    return dict(precision=precision, recall=recall, density=density, coverage=coverage)
