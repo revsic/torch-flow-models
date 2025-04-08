@@ -266,6 +266,6 @@ class MultistepConsistencySampler:
             # [B, ...]
             x_0 = model.predict(x_t, t)
             # [B, ...]
-            x_t = model.noise(x_0, t - 1 / steps)
+            x_t = model.noise(x_0, t - 1 / steps, prior)
             x_ts.append(x_t)
         return x_t, x_ts
