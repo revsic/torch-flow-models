@@ -105,6 +105,7 @@ class Cifar10Trainer:
         half_life_ema: int | None = None,
         _eval_interval: int = 20,
         _load_ema_ckpt: Path | None = None,
+        _start_step: int = 0,
     ):
         self.model.train()
         accelerator = Accelerator(
@@ -153,11 +154,9 @@ class Cifar10Trainer:
             )
 
             if _load_ema_ckpt:
-                load_model(
-                    ema.module, _load_ema_ckpt, device=next(ema.parameters()).device
-                )
+                load_model(ema.module, _load_ema_ckpt)
 
-        step = 0
+        step = _start_step
         epochs = -(-total // len(train_loader))
         for epoch in tqdm(range(epochs), disable=not _main_proc):
             with tqdm(train_loader, leave=False, disable=not _main_proc) as pbar:
