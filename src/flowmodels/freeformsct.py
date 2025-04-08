@@ -23,8 +23,9 @@ class _PositiveLinear(nn.Linear):
 
 
 class _LearnableInterpolant(nn.Module):
-    def __init__(self, h: int = 1024):
+    def __init__(self, h: int = 1024, dt: float = 1e-2):
         super().__init__()
+        self.dt = dt
         self.l1 = _PositiveLinear(1, 1)
         self.l2 = nn.Sequential(
             _PositiveLinear(1, h),
@@ -33,12 +34,9 @@ class _LearnableInterpolant(nn.Module):
         )
         with torch.no_grad():
             self.l1.weight.copy_(1)
-            self.l2[2].weight.zero_()
+            self.l2[2].weight.mul_(1e-5)
         self.c = nn.Parameter(torch.tensor(1.0))
         self.register_buffer("_placeholder", torch.tensor([0, 1]), persistent=False)
-
-        self._grad_fn = torch.func.grad(lambda x: self.forward(x).sum())
-        self._2nd_fn = torch.func.grad(lambda x: self._grad_fn(x).sum())
 
     def forward(self, t: torch.Tensor):
         (b,) = t.shape
@@ -54,37 +52,26 @@ class _LearnableInterpolant(nn.Module):
         with_1st: bool = False,
         with_2nd: bool = False,
     ):
-        c, gamma = F.relu(self.c), self.forward(t)
-        alpha, sigma = (1 - gamma) ** c, gamma**c
+        c, g = F.relu(self.c), self.forward(t)
+        a, s = (1 - g) ** c, g**c
         if not with_1st and not with_2nd:
-            return gamma, alpha, sigma
+            return g, a, s
 
-        dgamma = self._grad_fn(t)
-        dalpha = -c * (1 - gamma) ** (c - 1) * dgamma
-        dsigma = c * gamma ** (c - 1) * dgamma
+        g_dt = self.forward(t + self.dt)
+        dg = (g_dt - g) / self.dt
+        da = -c * (1 - g) ** (c - 1) * dg
+        ds = c * g ** (c - 1) * dg
         if not with_2nd:
-            return gamma, alpha, sigma, dgamma, dalpha, dsigma
+            return g, a, s, dg, da, ds
 
-        ddgamma = self._2nd_fn(t)
-        ddalpha = (
-            c * (c - 1) * (1 - gamma) ** (c - 2) * dgamma.square()
-            - c * (1 - gamma) ** (c - 1) * ddgamma
+        g_2dt = self.forward(t + 2 * self.dt)
+        ddg = (g_2dt - 2 * g_dt + g) * self.dt**-2
+        dda = (
+            c * (c - 1) * (1 - g) ** (c - 2) * dg.square()
+            - c * (1 - g) ** (c - 1) * ddg
         )
-        ddsigma = (
-            c * (c - 1) * gamma ** (c - 2) * dgamma.square()
-            + c * gamma ** (c - 1) * ddgamma
-        )
-        return (
-            gamma,
-            alpha,
-            sigma,
-            dgamma,
-            dalpha,
-            dsigma,
-            ddgamma,
-            ddalpha,
-            ddsigma,
-        )
+        dds = c * (c - 1) * g ** (c - 2) * dg.square() + c * g ** (c - 1) * ddg
+        return g, a, s, dg, da, ds, ddg, dda, dds
 
     def interp(self, x: torch.Tensor, e: torch.Tensor, t: torch.Tensor):
         (b,) = t.shape
@@ -140,13 +127,13 @@ class FreeformCT(
         module: nn.Module,
         _ada_weight_size: int = 128,
         _hidden_interpolant: int = 1024,
-        _eps: float = 1e-3,
+        _eps: float = 1e-2,
     ):
         super().__init__()
         self.F0 = module
         self.sampler = MultistepConsistencySampler()
         self._ada_weight = _AdaptiveWeights(_ada_weight_size)
-        self._interpolant = _LearnableInterpolant(_hidden_interpolant)
+        self._interpolant = _LearnableInterpolant(_hidden_interpolant, dt=_eps)
         self._eps = _eps
 
     def forward(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
