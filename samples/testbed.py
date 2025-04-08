@@ -1,4 +1,4 @@
-from typing import Callable, Iterable, Protocol, Self, Type
+from typing import Callable, Iterable, Iterator, Protocol, Self, Type, TypeVar
 
 import numpy as np
 import torch
@@ -7,6 +7,47 @@ import torch.nn as nn
 
 from flowmodels.basis import SamplingSupports
 from flowmodels.utils import EMASupports
+
+
+class _Share(SamplingSupports, Protocol):
+    def parameters(self, recurse: bool = True) -> Iterator[nn.Parameter]: ...
+
+
+class _Loss1(_Share, Protocol):
+    def loss(
+        self, sample: torch.Tensor, t: torch.Tensor, src: torch.Tensor
+    ) -> torch.Tensor: ...
+
+
+class _Loss2(_Share, Protocol):
+    def loss(
+        self,
+        sample: torch.Tensor,
+        t: torch.Tensor,
+        src: torch.Tensor,
+        ema: EMASupports,
+    ) -> torch.Tensor: ...
+
+
+class _Loss3(_Share, Protocol):
+    def loss(
+        self, sample: torch.Tensor, t: torch.Tensor, prior: torch.Tensor
+    ) -> torch.Tensor: ...
+
+
+class _Loss4(_Share, Protocol):
+    def loss(
+        self,
+        sample: torch.Tensor,
+        t: torch.Tensor,
+        prior: torch.Tensor,
+        ema: EMASupports,
+    ) -> torch.Tensor: ...
+
+
+_InheritanceSupports = _Loss1 | _Loss2 | _Loss3 | _Loss4
+
+S = TypeVar("S", bound=_InheritanceSupports)
 
 
 class Testbed(nn.Module, SamplingSupports):
@@ -29,39 +70,21 @@ class Testbed(nn.Module, SamplingSupports):
         # target distribution
         return mixture.sample((100000, 1))
 
-    class _InheritanceSupports(SamplingSupports, Protocol):
-        def loss(self, sample: torch.Tensor, t: torch.Tensor, src: torch.Tensor): ...
-        def loss(
-            self,
-            sample: torch.Tensor,
-            t: torch.Tensor,
-            src: torch.Tensor,
-            ema: EMASupports[Self],
-        ): ...
-        def loss(self, sample: torch.Tensor, t: torch.Tensor, prior: torch.Tensor): ...
-        def loss(
-            self,
-            sample: torch.Tensor,
-            t: torch.Tensor,
-            prior: torch.Tensor,
-            ema: EMASupports[Self],
-        ): ...
-
     @classmethod
-    def inherit[S: _InheritanceSupports](
+    def inherit(
         cls, Super: Type[S], dim: int = 1, retn_class: bool = False, *args, **kwargs
     ):
         class Inherited(cls):
             def __init__(self, dim: int = 1, *args, **kwargs):
                 super().__init__(dim)
-                self._super = (Super(self, *args, **kwargs),)
+                self._super = (Super(self, *args, **kwargs),)  # pyright: ignore
 
             @property
             def base(self) -> S:
                 (_super,) = self._super
                 return _super
 
-            def parameters(self, recurse = True):
+            def parameters(self, recurse=True) -> Iterator[nn.Parameter]:
                 return self.base.parameters(recurse)
 
             def loss(
@@ -70,10 +93,10 @@ class Testbed(nn.Module, SamplingSupports):
                 t: torch.Tensor,
                 src: torch.Tensor,
                 ema: EMASupports | None = None,
-            ):
+            ) -> torch.Tensor:
                 if ema is None:
-                    return self.base.loss(sample, t, src)
-                return self.base.loss(sample, t, src, ema)
+                    return self.base.loss(sample, t, src)  # pyright: ignore
+                return self.base.loss(sample, t, src, ema)  # pyright: ignore
 
             def sample(
                 self,
@@ -115,7 +138,7 @@ class Testbed(nn.Module, SamplingSupports):
         # train
         self.train()
         if isinstance(optim, type):
-            optim = optim(self.parameters(), lr)
+            optim = optim(self.parameters(), lr)  # pyright: ignore
 
         _length = len(dataset)
         if isinstance(dataset, tuple):
@@ -130,7 +153,7 @@ class Testbed(nn.Module, SamplingSupports):
                     sample = dataset[indices]
                     prior = torch.randn_like(sample)
                 else:
-                    sample, prior = _data[indices], _prior[indices]
+                    sample, prior = _data[indices], _prior[indices]  # pyright: ignore
                 # []
                 loss = self.loss(sample, torch.rand(batch_size), prior, ema)
                 # update
@@ -173,10 +196,15 @@ class Testbed(nn.Module, SamplingSupports):
                 x_t for step in steps for x_t, _ in (self.sample(prior, step, verbose),)
             ]
         plt.figure()
-        plt.hist(prior, bins=histspace, label="prior")
-        plt.hist(gt[:n], bins=histspace, label="gt", alpha=0.7)
+        plt.hist(prior, bins=histspace, label="prior")  # pyright: ignore
+        plt.hist(gt[:n], bins=histspace, label="gt", alpha=0.7)  # pyright: ignore
         for step, x_t in zip(steps, x_ts):
-            plt.hist(x_t.view(-1), bins=histspace, label=f"{name}-{step}", alpha=0.5)
+            plt.hist(
+                x_t.view(-1),
+                bins=histspace,  # pyright: ignore
+                label=f"{name}-{step}",
+                alpha=0.5,
+            )
         plt.legend()
         _xticks, _ = plt.xticks()
 
@@ -198,8 +226,8 @@ class Testbed(nn.Module, SamplingSupports):
                     ),
                     np.linspace(0, 1, len(x_ts) + 1),
                     colors[j % len(colors)],
-                    **({} if i > 0 else {"label": f"{name}-{step}"}),
+                    **({} if i > 0 else {"label": f"{name}-{step}"}),  # pyright: ignore
                     alpha=0.5,
                 )
-                plt.xticks(_xticks)
+                plt.xticks(_xticks)  # pyright: ignore
         plt.legend()
