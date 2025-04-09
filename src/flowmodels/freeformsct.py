@@ -56,7 +56,7 @@ class _LearnableInterpolant(nn.Module):
 
     def forward(self, t: torch.Tensor):
         (b,) = t.shape
-        t = torch.cat([self._placeholder, t], dim=0)  # pyright: ignore
+        t = torch.cat([self._placeholder, t.to(self._placeholder.device)], dim=0)  # pyright: ignore
         t = self.i * t + (1 - self.i) * (np.pi * 0.5 * t).sin().square()
         l1 = self.l1.forward(t[:, None])
         g0, g1, gamma = (l1 + self.l2.forward(l1)).squeeze(dim=-1).split([1, 1, b])
