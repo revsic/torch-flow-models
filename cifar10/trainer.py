@@ -177,6 +177,14 @@ class Cifar10Trainer:
                         optimizer.step()
                         if scheduler is not None:
                             scheduler.step()
+                        # compute gradient norm before zero-grad
+                        if _main_proc:
+                            with torch.no_grad():
+                                _grad_norms = [
+                                    torch.norm(p.grad).item()
+                                    for p in model.parameters()
+                                    if p.grad is not None
+                                ]
                         optimizer.zero_grad()
 
                     step += 1
@@ -193,16 +201,9 @@ class Cifar10Trainer:
                             self.train_log.add_scalar(f"debug-pupose:{k}", v, step)
 
                         with torch.no_grad():
-                            _grad_norms = [
-                                torch.norm(p.grad).item()
-                                for p in model.parameters()
-                                if p.grad is not None
-                            ]
-                            if _grad_norms:
-                                self.train_log.add_scalar(
-                                    "common/grad-norm", np.mean(_grad_norms), step
-                                )
-
+                            self.train_log.add_scalar(
+                                "common/grad-norm", np.mean(_grad_norms), step
+                            )
                             param_norm = np.mean(
                                 [torch.norm(p).item() for p in model.parameters()]
                             )
