@@ -74,11 +74,13 @@ class ScaledContinuousCM(
         self.sampler = MultistepConsistencySampler()
         self._tangent_warmup, self._steps = tangent_warmup, 0
         self._ada_weight = _AdaptiveWeights(_ada_weight_size)
+        # debug purpose
+        self._debug_from_loss = {}
 
     # debug purpose
     @property
     def _debug_purpose(self):
-        return getattr(self.F0, "_debug_purpose", None)
+        return {**self._debug_from_loss, **getattr(self.F0, "_debug_purpose", {})}
 
     def forward(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         """Estimate the `x_0` from the given `x_t`.
@@ -200,14 +202,20 @@ class ScaledContinuousCM(
         rdim = [i + 1 for i in range(x_t.dim() - 1)]
         # normalized tangent
         normalized_tangent = cos_mul_grad / (
-            cos_mul_grad.norm(p=2, dim=rdim, keepdim=True) + 0.1
+            _norm := cos_mul_grad.norm(p=2, dim=rdim, keepdim=True) + 0.1
         )
         # [B]
         mse = (estim - F - normalized_tangent).square().mean(dim=rdim)
         # [B], adaptive weighting
-        logvar = self._ada_weight.forward(_t)
+        logvar = self._ada_weight.forward(t)
         # [B], different with
         loss = mse * logvar.exp() - logvar
+        with torch.no_grad():
+            self._debug_from_loss = {
+                "sct/mse": mse.mean().item(),
+                "sct/logvar": logvar.mean().item(),
+                "sct/tangent-norm": _norm.mean().item(),
+            }
         # []
         return loss.mean()
 
@@ -280,7 +288,7 @@ class TrigFlow(ScaledContinuousCM):
         # [B]
         mse = (estim - sample).square().mean(dim=rdim)
         # [B], adaptive weighting
-        logvar = self._ada_weight.forward(_t)
+        logvar = self._ada_weight.forward(t)
         # [B], different with
         loss = mse * logvar.exp() - logvar
         return loss.mean()
