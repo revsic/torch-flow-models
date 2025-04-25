@@ -55,6 +55,7 @@ class _LearnableInterpolant(nn.Module):
         self.register_buffer("_placeholder", torch.tensor([0, 1]), persistent=False)
 
     def forward(self, t: torch.Tensor):
+        assert isinstance(self._placeholder, torch.Tensor)
         (b,) = t.shape
         i = self.i.sigmoid()
         t = torch.cat(
@@ -174,12 +175,6 @@ class FreeformCT(
         return {
             "ffsct/i": self._interpolant.i.sigmoid().item(),
             "ffsct/c": self._interpolant.c.item(),
-            "ffsct/w1": self._interpolant.l1.weight.item(),
-            "ffsct/b1": self._interpolant.l1.bias.item(),
-            "ffsct/w2-norm": self._interpolant.l2[0].weight.norm().item(),
-            "ffsct/b2-norm": self._interpolant.l2[0].bias.norm().item(),
-            "ffsct/w3-norm": self._interpolant.l2[2].weight.norm().item(),
-            "ffsct/b3-norm": self._interpolant.l2[2].bias.norm().item(),
             **self._debug_from_loss,
             **getattr(self.F0, "_debug_purpose", {}),
         }
