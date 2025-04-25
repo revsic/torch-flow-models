@@ -50,14 +50,15 @@ class _LearnableInterpolant(nn.Module):
         with torch.no_grad():
             self.l1.weight.copy_(torch.tensor(1.0))
             self.l2[2].weight.mul_(1e-5)  # pyright: ignore
-        self.i = nn.Parameter(torch.tensor(0.5))
-        self.c = nn.Parameter(torch.tensor(0.75))
+        self.i = nn.Parameter(torch.tensor(0.0))
+        self.c = nn.Parameter(torch.tensor(0.0))
         self.register_buffer("_placeholder", torch.tensor([0, 1]), persistent=False)
 
     def forward(self, t: torch.Tensor):
         (b,) = t.shape
+        i = self.i.sigmoid()
         t = torch.cat([self._placeholder, t.to(self._placeholder.device)], dim=0)  # pyright: ignore
-        t = self.i * t + (1 - self.i) * (np.pi * 0.5 * t).sin().square()
+        t = i * t + (1 - i) * (np.pi * 0.5 * t).sin().square()
         l1 = self.l1.forward(t[:, None])
         g0, g1, gamma = (l1 + self.l2.forward(l1)).squeeze(dim=-1).split([1, 1, b])
         gamma = (gamma - g0) / (g1 - g0).clamp_min(1e-8)
@@ -69,7 +70,7 @@ class _LearnableInterpolant(nn.Module):
         with_1st: bool = False,
         with_2nd: bool = False,
     ) -> _Coeff:
-        c, g = F.relu(self.c), self.forward(t)
+        c, g = 0.5 + self.c.sigmoid() * 0.5, self.forward(t)
         a, s = (1 - g) ** c, g**c
         if not with_1st and not with_2nd:
             return _Coeff(g, a, s)
@@ -169,8 +170,14 @@ class FreeformCT(
     @property
     def _debug_purpose(self):
         return {
-            "ffsct/i": self._interpolant.i.item(),
+            "ffsct/i": self._interpolant.i.sigmoid().item(),
             "ffsct/c": self._interpolant.c.item(),
+            "ffsct/w1": self._interpolant.l1.weight.item(),
+            "ffsct/b1": self._interpolant.l1.bias.item(),
+            "ffsct/w2-norm": self._interpolant.l2[0].weight.norm().item(),
+            "ffsct/b2-norm": self._interpolant.l2[0].bias.norm().item(),
+            "ffsct/w3-norm": self._interpolant.l2[2].weight.norm().item(),
+            "ffsct/b3-norm": self._interpolant.l2[2].bias.norm().item(),
             **self._debug_from_loss,
             **getattr(self.F0, "_debug_purpose", {}),
         }
@@ -263,9 +270,9 @@ class FreeformCT(
         loss = mse * logvar.exp() - logvar
         with torch.no_grad():
             self._debug_from_loss = {
-                "ffsct/mse": mse.mean().item(),
-                "ffsct/logvar": logvar.mean().item(),
-                "ffsct/tangent-norm": g_norm.mean().item(),
+                "sct/mse": mse.mean().item(),
+                "sct/logvar": logvar.mean().item(),
+                "sct/tangent-norm": g_norm.mean().item(),
             }
         # []
         return loss.mean()
