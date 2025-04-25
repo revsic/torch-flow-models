@@ -7,7 +7,6 @@ from safetensors.torch import load_model
 from ddpmpp import DDPMpp
 from flowmodels.sct import ScaledContinuousCM, ScaledContinuousCMScheduler
 from trainer import Cifar10Trainer
-from trigflow import InverseSquareRootScheduler
 
 
 def reproduce_sct_cifar10():
@@ -53,11 +52,6 @@ def reproduce_sct_cifar10():
         betas=(0.9, 0.99),
         eps=1e-8,
     )
-    trainer.scheduler = InverseSquareRootScheduler(
-        trainer.optim,
-        0.0001,
-        t_ref=70000,
-    )
 
     trainer.train(
         total=400000 * n_grad_accum,
@@ -65,6 +59,7 @@ def reproduce_sct_cifar10():
         gradient_accumulation_steps=n_grad_accum,
         half_life_ema=500000,
         _eval_interval=20 * n_grad_accum,
+        _fid_steps=2,
     )
 
 
