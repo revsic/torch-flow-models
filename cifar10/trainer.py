@@ -130,11 +130,10 @@ class Cifar10Trainer:
         if _main_proc:
             accelerator.init_trackers("train")
 
-        model, optimizer, train_loader, test_loader = accelerator.prepare(
+        model, optimizer, train_loader = accelerator.prepare(
             _LossDDPWrapper(self.model),
             self.optim,
             self.train_loader,
-            self.test_loader,
         )
         scheduler = None
         if self.scheduler is not None:
@@ -218,13 +217,14 @@ class Cifar10Trainer:
                 with torch.no_grad():
                     model.eval()
                     losses = [
-                        model(bunch * 2 - 1).item()
-                        for bunch, labels in tqdm(test_loader, leave=False)
+                        self.model.loss(bunch.cuda() * 2 - 1).item()
+                        for bunch, labels in tqdm(self.test_loader, leave=False)
                     ]
                     self.test_log.add_scalar(f"loss", np.mean(losses), step)
 
                     # plot image
-                    sample, _ = next(iter(test_loader))
+                    sample, _ = next(iter(self.test_loader))
+                    sample = sample.cuda()
                     _, c, h, w = sample.shape
                     sample, trajectories = self.model.sample(
                         torch.randn(
