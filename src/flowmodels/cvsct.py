@@ -101,7 +101,9 @@ class ConstantVelocityConsistencyModels(
         # reducing dimension
         rdim = [i + 1 for i in range(x_t.dim() - 1)]
         # normalized tangent
-        normalized_tangent = grad / (_norm := grad.norm(p=2, dim=rdim, keepdim=True) + 0.1)
+        normalized_tangent = grad / (
+            _norm := grad.norm(p=2, dim=rdim, keepdim=True) + 0.1
+        )
         # [B, ...]
         estim: torch.Tensor = self.F0.forward(x_t, t)
         # [B]
