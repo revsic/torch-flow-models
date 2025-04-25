@@ -106,6 +106,7 @@ class Cifar10Trainer:
         _eval_interval: int = 20,
         _load_ema_ckpt: Path | None = None,
         _start_step: int = 0,
+        _fid_steps: int | None = None,
     ):
         self.model.train()
         accelerator = Accelerator(
@@ -238,7 +239,9 @@ class Cifar10Trainer:
 
                     fid = compute_fid_with_model(
                         _model,
+                        steps=_fid_steps,
                         num_samples=10000,
+                        inception_batch_size=self.test_loader.batch_size,
                         sampling_batch_size=self.test_loader.batch_size,
                         device=accelerator.device,
                         scaler=lambda x: (
