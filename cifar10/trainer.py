@@ -3,6 +3,7 @@ from typing import Protocol
 
 import numpy as np
 import torch
+import torch.nn as nn
 import torchvision
 import torchvision.transforms as transforms
 from accelerate import Accelerator
@@ -32,6 +33,16 @@ class DefaultLogger(Loggable):
             self.logger.log(level, msg)
         else:
             print(f"[{level}] {msg}")
+
+
+class _LossDDPWrapper(nn.Module):
+    def __init__(self, model: ODEModel | ScoreModel):
+        super().__init__()
+        assert isinstance(model, nn.Module)
+        self.model = model
+
+    def forward(self, *args, **kwargs):
+        return self.model.loss(*args, **kwargs)
 
 
 class Cifar10Trainer:
@@ -120,7 +131,10 @@ class Cifar10Trainer:
             accelerator.init_trackers("train")
 
         model, optimizer, train_loader, test_loader = accelerator.prepare(
-            self.model, self.optim, self.train_loader, self.test_loader
+            _LossDDPWrapper(self.model),
+            self.optim,
+            self.train_loader,
+            self.test_loader,
         )
         scheduler = None
         if self.scheduler is not None:
@@ -135,15 +149,9 @@ class Cifar10Trainer:
             )
             accelerator.load_state(load_ckpt.absolute().as_posix())
 
-        _model = model
-        if isinstance(_model, torch._dynamo.OptimizedModule):
-            _model = model._orig_mod
-        if isinstance(_model, torch.nn.parallel.DistributedDataParallel):
-            _model = model.module
-
         ema, mu = None, 0.0
         if half_life_ema:
-            ema = EMASupports(_model)
+            ema = EMASupports(self.model)
             # compute batch size again for multi-gpu settings
             batch_size = len(self.trainset) // len(train_loader)
             self._logger.log(f"Estimated batch-size: {batch_size}")
@@ -163,7 +171,7 @@ class Cifar10Trainer:
             with tqdm(train_loader, leave=False, disable=not _main_proc) as pbar:
                 for sample, labels in pbar:
                     with accelerator.accumulate(model):
-                        loss = _model.loss(sample * 2 - 1)
+                        loss = model(sample * 2 - 1)
                         accelerator.backward(loss)
 
                         optimizer.step()
@@ -174,13 +182,13 @@ class Cifar10Trainer:
                     step += 1
                     if _main_proc:
                         if ema is not None:
-                            ema.update(_model, mu)
+                            ema.update(self.model, mu)
 
                         pbar.set_postfix({"loss": loss.item(), "step": step})
                         self.train_log.add_scalar("loss", loss.item(), step)
 
                         for k, v in (
-                            getattr(_model, "_debug_purpose", None) or {}
+                            getattr(self.model, "_debug_purpose", None) or {}
                         ).items():
                             self.train_log.add_scalar(f"debug-pupose:{k}", v, step)
 
@@ -207,17 +215,17 @@ class Cifar10Trainer:
 
             if _main_proc and epoch % (epochs // _eval_interval) == 0:
                 with torch.no_grad():
+                    model.eval()
                     losses = [
-                        _model.loss(bunch * 2 - 1).item()
+                        model(bunch * 2 - 1).item()
                         for bunch, labels in tqdm(test_loader, leave=False)
                     ]
                     self.test_log.add_scalar(f"loss", np.mean(losses), step)
 
                     # plot image
-                    model.eval()
                     sample, _ = next(iter(test_loader))
                     _, c, h, w = sample.shape
-                    sample, trajectories = _model.sample(
+                    sample, trajectories = self.model.sample(
                         torch.randn(
                             *(num_samples, c, h, w),
                             generator=torch.Generator(sample.device).manual_seed(0),
@@ -226,7 +234,6 @@ class Cifar10Trainer:
                         ),
                         verbose=lambda x: tqdm(x, leave=False),
                     )
-                    model.train()
                     for i, img in enumerate(sample):
                         img = ((img + 1) * 0.5).clamp(0.0, 1.0)
                         self.test_log.add_image(f"sample/{i}", img, step)
@@ -238,7 +245,7 @@ class Cifar10Trainer:
                             self.test_log.add_image(f"sample/{i}/traj@{j}", point, step)
 
                     fid = compute_fid_with_model(
-                        _model,
+                        self.model,
                         steps=_fid_steps,
                         num_samples=10000,
                         inception_batch_size=self.test_loader.batch_size,
@@ -248,6 +255,7 @@ class Cifar10Trainer:
                             (x - x.amin()) / (x.amax() - x.amin()) * 255
                         ).to(torch.uint8),
                     )
+                    model.train()
                     self.test_log.add_scalar("metric/fid10k", fid, step)
 
                 accelerator.save_state(self.workspace / "ckpt" / str(epoch))
