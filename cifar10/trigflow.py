@@ -42,7 +42,7 @@ def reproduce_trigflow_cifar10():
         num_res_blocks=4,
         init_scale=0.0,
         skip_rescale=True,
-        dropout=0.20,
+        dropout=0.13,
         pe_scale=0.02,
         use_shift_scale_norm=True,
         use_double_norm=True,
@@ -62,16 +62,17 @@ def reproduce_trigflow_cifar10():
     trainer = Cifar10Trainer(
         model,
         batch_size=512 // n_gpus // n_grad_accum,
-        lr=0.0001,
+        lr=0.001,  # experimented on 0.0001
         betas=(0.9, 0.999),
         eps=1e-8,
         shuffle=True,
         dataset_path=Path("./"),
         workspace=Path(f"./test.workspace/trigflow-cifar10/{stamp}"),
     )
+    # from EDM2
     trainer.scheduler = InverseSquareRootScheduler(
         trainer.optim,
-        0.0001,
+        0.001,
         t_ref=70000,
     )
 
