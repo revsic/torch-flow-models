@@ -32,16 +32,16 @@ def reproduce_sct_cifar10():
     )
     load_model(
         model,
-        "./test.workspace/sct-cifar10/2025.04.01KST12:53:20/ckpt/2076/model.safetensors",
+        "./test.workspace/sct-cifar10/2025.04.01KST12:53:20/ckpt/548/model.safetensors",
     )
 
     n_gpus = 2
-    n_grad_accum = 1
+    n_grad_accum = 2
     # timestamp
     stamp = datetime.now(timezone(timedelta(hours=9))).strftime("%Y.%m.%dKST%H:%M:%S")
     trainer = Cifar10Trainer(
         model,
-        batch_size=230,  # 512 // n_gpus // n_grad_accum,
+        batch_size=225,  # 512 // n_gpus // n_grad_accum,
         shuffle=True,
         dataset_path=Path("./"),
         workspace=Path(f"./test.workspace/sct-cifar10/{stamp}"),
