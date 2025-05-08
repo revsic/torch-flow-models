@@ -55,25 +55,19 @@ def reproduce_trigflow_cifar10():
         ),
     )
 
-    n_gpus = 1
-    n_grad_accum = 3
+    n_gpus = 2
+    n_grad_accum = 1
     # timestamp
     stamp = datetime.now(timezone(timedelta(hours=9))).strftime("%Y.%m.%dKST%H:%M:%S")
     trainer = Cifar10Trainer(
         model,
         batch_size=512 // n_gpus // n_grad_accum,
-        lr=0.001,  # experimented on 0.0001
+        lr=0.0005,  # paper: 0.001 (diverge)
         betas=(0.9, 0.999),
         eps=1e-8,
         shuffle=True,
         dataset_path=Path("./"),
         workspace=Path(f"./test.workspace/trigflow-cifar10/{stamp}"),
-    )
-    # from EDM2
-    trainer.scheduler = InverseSquareRootScheduler(
-        trainer.optim,
-        0.001,
-        t_ref=70000,
     )
 
     trainer.train(
@@ -81,6 +75,7 @@ def reproduce_trigflow_cifar10():
         mixed_precision="no",
         gradient_accumulation_steps=n_grad_accum,
         _eval_interval=20 * n_grad_accum,
+        _fid_steps=18,
     )
 
 
