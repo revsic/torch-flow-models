@@ -172,6 +172,8 @@ class Cifar10Trainer:
                     with accelerator.accumulate(model):
                         loss = model(sample * 2 - 1)
                         accelerator.backward(loss)
+                        # early collection
+                        loss = loss.item()
 
                         optimizer.step()
                         if scheduler is not None:
@@ -191,8 +193,8 @@ class Cifar10Trainer:
                         if ema is not None:
                             ema.update(self.model, mu)
 
-                        pbar.set_postfix({"loss": loss.item(), "step": step})
-                        self.train_log.add_scalar("loss", loss.item(), step)
+                        pbar.set_postfix({"loss": loss, "step": step})
+                        self.train_log.add_scalar("loss", loss, step)
 
                         for k, v in (
                             getattr(self.model, "_debug_purpose", None) or {}
