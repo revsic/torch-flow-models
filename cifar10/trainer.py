@@ -114,6 +114,7 @@ class Cifar10Trainer:
         num_samples: int = 10,
         load_ckpt: Path | None = None,
         half_life_ema: int | None = None,
+        clip_grad_norm: float | None = None,
         _eval_interval: int = 20,
         _load_ema_ckpt: Path | None = None,
         _start_step: int = 0,
@@ -172,6 +173,8 @@ class Cifar10Trainer:
                     with accelerator.accumulate(model):
                         loss = model(sample * 2 - 1)
                         accelerator.backward(loss)
+                        if clip_grad_norm:
+                            accelerator.clip_grad_norm_(model.parameters(), clip_grad_norm)
                         # early collection
                         loss = loss.item()
 
