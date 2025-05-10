@@ -282,11 +282,13 @@ class TrigFlow(ScaledContinuousCM):
         # [B, ...]
         _t = t.view([batch_size] + [1] * (x_t.dim() - 1))
         # [B, ...]
-        estim = _t.cos() * x_t - _t.sin() * sigma_d * self.F0.forward(x_t / sigma_d, t)
+        v_t = _t.cos() * sigma_d * prior - _t.sin() * sample
+        # [B, ...]
+        estim = sigma_d * self.F0.forward(x_t / sigma_d, t)
         # reducing dimension
         rdim = [i + 1 for i in range(x_t.dim() - 1)]
         # [B]
-        mse = (estim - sample).square().mean(dim=rdim)
+        mse = (estim - v_t).square().mean(dim=rdim)
         # [B], adaptive weighting
         logvar = self._ada_weight.forward(t)
         # [B], different with
