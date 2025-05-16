@@ -6,7 +6,7 @@ from safetensors.torch import load_model
 
 from ddpmpp import DDPMpp
 from flowmodels.sct import ScaledContinuousCM, ScaledContinuousCMScheduler
-from trainer import Cifar10Trainer
+from trainer import Cifar10Trainer, _LossDDPWrapper
 
 
 def reproduce_sct_cifar10():
@@ -31,12 +31,12 @@ def reproduce_sct_cifar10():
         tangent_warmup=10000,
     )
     load_model(
-        model,
-        "./test.workspace/sct-cifar10/2025.04.01KST12:53:20/ckpt/548/model.safetensors",
+        _LossDDPWrapper(model),
+        "./test.workspace/trigflow-cifar10/2025.05.06KST17:05:41-lr5e-4/ckpt/2652/model.safetensors",
     )
 
     n_gpus = 2
-    n_grad_accum = 2
+    n_grad_accum = 1
     # timestamp
     stamp = datetime.now(timezone(timedelta(hours=9))).strftime("%Y.%m.%dKST%H:%M:%S")
     trainer = Cifar10Trainer(
