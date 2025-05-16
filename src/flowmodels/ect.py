@@ -151,7 +151,7 @@ class EasyConsistencyTraining(
             prior = torch.randn_like(sample)
         if t is None:
             # shortcut
-            p_std, p_mean = self.scheduler.p_std, self.scheduler.p_std
+            p_std, p_mean = self.scheduler.p_std, self.scheduler.p_mean
             # sample from log-normal
             rw_t = (torch.randn(batch_size, device=device) * p_std + p_mean).exp()
             # [T]
