@@ -134,7 +134,7 @@ class ScaledContinuousCM(
         var = self.scheduler.var(t).view([bsize] + [1] * (x_0.dim() - 1))
         # simplified:
         # t = t * np.pi * 0.5 >>= (t.cos() * x_0 - x_t) / t.sin().square()
-        return ((1 - var).sqrt().to(x_0) * x_0 - x_t) / var.clamp_min(1e-7).to(x_0)
+        return ((1 - var).sqrt().to(x_0) * x_0 - x_t) / var.clamp_min(1e-5).to(x_0)
 
     def loss(
         self,
@@ -181,12 +181,13 @@ class ScaledContinuousCM(
         # ENGINEERING: Out-of-inference mode multiplication for torch-dynamo inductor support
         _tangents = (_t.cos() * _t.sin() * v_t / sigma_d, t.cos() * t.sin() * sigma_d)
         # [B, ...], [B, ...], jvp = t.cos() * t.sin() * dF/dt
-        with torch.inference_mode():
-            F, jvp, *_ = torch.func.jvp(  # pyright: ignore [reportPrivateImportUsage]
-                EMASupports[Self].reduce(self, ema).F0.forward,
-                (x_t / sigma_d, t),
-                _tangents,
-            )
+        F, jvp, *_ = torch.func.jvp(  # pyright: ignore [reportPrivateImportUsage]
+            EMASupports[Self].reduce(self, ema).F0.forward,
+            (x_t / sigma_d, t),
+            _tangents,
+        )
+        F = F.detach()
+        jvp = jvp.detach()
         # warmup scaler
         r = 1.0
         if self._tangent_warmup:
