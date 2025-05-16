@@ -61,6 +61,7 @@ class Cifar10Trainer:
         _logger: Loggable = DefaultLogger(),
     ):
         self.model = model
+        self.batch_size = batch_size
         self.workspace = workspace
         self.trainset = torchvision.datasets.CIFAR10(
             dataset_path,
@@ -120,6 +121,9 @@ class Cifar10Trainer:
         _start_step: int = 0,
         _fid_steps: int | None = None,
     ):
+        # validity check
+        assert _eval_interval > 0
+
         self.model.train()
         accelerator = Accelerator(
             mixed_precision=mixed_precision,
@@ -153,7 +157,11 @@ class Cifar10Trainer:
         if half_life_ema:
             ema = EMASupports(self.model)
             # compute batch size again for multi-gpu settings
-            batch_size = len(self.trainset) // len(train_loader)
+            batch_size = (
+                self.batch_size
+                * accelerator.num_processes
+                * gradient_accumulation_steps
+            )
             self._logger.log(f"Estimated batch-size: {batch_size}")
             # compute ema factor
             steps = half_life_ema / batch_size
@@ -174,25 +182,27 @@ class Cifar10Trainer:
                         loss = model(sample * 2 - 1)
                         accelerator.backward(loss)
                         if clip_grad_norm:
-                            accelerator.clip_grad_norm_(model.parameters(), clip_grad_norm)
+                            accelerator.clip_grad_norm_(
+                                model.parameters(), clip_grad_norm
+                            )
                         # early collection
                         loss = loss.item()
 
-                        optimizer.step()
-                        if scheduler is not None:
-                            scheduler.step()
-                        # compute gradient norm before zero-grad
-                        if _main_proc:
+                        if updated := accelerator.sync_gradients:
+                            step += 1
+                            optimizer.step()
+                            if scheduler is not None:
+                                scheduler.step()
+                            # compute gradient norm before zero-grad
                             with torch.no_grad():
                                 _grad_norms = [
                                     torch.norm(p.grad).item()
                                     for p in model.parameters()
                                     if p.grad is not None
                                 ]
-                        optimizer.zero_grad()
+                            optimizer.zero_grad()
 
-                    step += 1
-                    if _main_proc:
+                    if updated and _main_proc:
                         if ema is not None:
                             ema.update(self.model, mu)
 
@@ -218,18 +228,24 @@ class Cifar10Trainer:
                                 "common/lr", self.optim.param_groups[0]["lr"], step
                             )
 
-            if _main_proc and epoch % (epochs // _eval_interval) == 0:
+            if _main_proc and epoch % max(1, epochs // _eval_interval) == 0:
                 with torch.no_grad():
                     model.eval()
+                    move = lambda tensor: (
+                        tensor.to(
+                            accelerator.device,
+                            dtype=next(self.model.parameters()).dtype,
+                        )
+                    )
                     losses = [
-                        self.model.loss(bunch.cuda() * 2 - 1).item()
+                        self.model.loss(move(bunch) * 2 - 1).item()
                         for bunch, labels in tqdm(self.test_loader, leave=False)
                     ]
                     self.test_log.add_scalar(f"loss", np.mean(losses), step)
 
                     # plot image
                     sample, _ = next(iter(self.test_loader))
-                    sample = sample.cuda()
+                    sample = move(sample)
                     _, c, h, w = sample.shape
                     sample, trajectories = self.model.sample(
                         torch.randn(
