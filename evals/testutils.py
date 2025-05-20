@@ -4,8 +4,10 @@ from typing import Any, Callable, Type
 
 import json
 import matplotlib.pyplot as plt
+import numpy as np
 import torch
 import torch.nn as nn
+from sklearn.neighbors import KernelDensity
 from tqdm.auto import tqdm
 
 from flowmodels import (
@@ -33,6 +35,34 @@ from flowmodels.sct import TrigFlow
 from flowmodels.utils import EMASupports
 
 from testbed import Testable, Testbed
+
+
+def kde_stats(
+    data: np.ndarray,
+    sample: np.ndarray,
+    grid: np.ndarray,
+    dxdy: float | None = None,
+    max_num: int = 1000,
+    bandwidth: float = 0.2,
+):
+    kde_data = KernelDensity(bandwidth=bandwidth).fit(data[:max_num])
+    kde_sample = KernelDensity(bandwidth=bandwidth).fit(sample[:max_num])
+
+    logp = kde_data.score_samples(grid)
+    logq = kde_sample.score_samples(grid)
+
+    if dxdy is None:
+        # assume that the grid is uniformly distributed
+        dxdy = np.abs(np.prod(grid[1] - grid[0])).item()
+
+    kld = lambda logp, logq: np.sum(np.exp(logp) * (logp - logq)).item() * dxdy
+    logm = np.log((np.exp(logp) + np.exp(logq)) * 0.5 + 1e-10)
+    return {
+        "nll": -kde_data.score_samples(sample).mean(),
+        "kld-fwd": kld(logp, logq),
+        "kld-bwd": kld(logq, logp),
+        "jsd": 0.5 * (kld(logp, logm) + kld(logq, logm)),
+    }
 
 
 @dataclass
