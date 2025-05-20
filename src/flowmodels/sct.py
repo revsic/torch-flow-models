@@ -344,14 +344,14 @@ class TrigFlow(ScaledContinuousCM):
             # [B]
             _t = t_hat.repeat(batch_size)
             # [B, ...], rescale t-steps into range[0, 1]
-            d_cur = sigma_d * self.F0.forward(x_hat.to(p) / sigma_d, _t).to(dtype)
+            d_cur = sigma_d * self.F0.forward(x_hat.to(p) / sigma_d, _t.to(p)).to(dtype)
             x = torch.cos(t_hat - t_next) * x_hat - torch.sin(t_hat - t_next) * d_cur
             # 2nd-order midpoint correction
             if i < steps - 1 and correction:
                 # [B]
                 _t = t_next.repeat(batch_size)
                 # [B, ...], rescale t-steps into range[0, 1]
-                d_prime = sigma_d * self.F0.forward(x.to(p) / sigma_d, _t).to(dtype)
+                d_prime = sigma_d * self.F0.forward(x.to(p) / sigma_d, _t.to(p)).to(dtype)
                 x = torch.cos(t_hat - t_next) * x_hat - torch.sin(t_hat - t_next) * (
                     0.5 * d_cur + 0.5 * d_prime
                 )
