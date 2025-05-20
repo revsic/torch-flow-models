@@ -120,6 +120,7 @@ class BaseTestbed:
         name: str = "model",
         steps: list[int | None] = [100, 4, 1],
         _sigma_data: float = 1.0,
+        _save_fig: Path | None = None,
     ):
         raise NotImplementedError("BaseTestbed.visualize is not implemented")
 
@@ -168,25 +169,7 @@ class BaseTestbed:
         return losses
 
 
-class _MScoreModel(nn.Module, SamplingSupports):
-    def loss(
-        self,
-        sample: torch.Tensor,
-        t: torch.Tensor | None = None,
-        prior: torch.Tensor | None = None,
-    ) -> torch.Tensor: ...
-
-
-class _MODEModel(nn.Module, SamplingSupports):
-    def loss(
-        self,
-        sample: torch.Tensor,
-        t: torch.Tensor | None = None,
-        src: torch.Tensor | None = None,
-    ) -> torch.Tensor: ...
-
-
-type Testable = _MScoreModel | _MODEModel
+type Testable = nn.Module
 
 
 class Testbed[T: Testable](BaseTestbed):
