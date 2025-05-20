@@ -132,13 +132,16 @@ class TestGaussianMixture1D(Testbed):
         )
 
     @torch.no_grad()
-    def evaluate(self, steps: list[int | None] = [100, 4, 1]) -> dict:
+    def evaluate(
+        self,
+        steps: list[int | None] = [100, 4, 1],
+        grid: np.ndarray = np.linspace(-3, 3, 200)[:, None],
+    ) -> dict:
         data, prior = self.dataset()
         if callable(prior):
             prior = prior(len(data))
 
         results = {}
-        grid = np.linspace(-3, 3, 200)[:, None]
         for step in steps:
             try:
                 r, _ = self.model.sample(prior, step, lambda x: tqdm(x, leave=False))
