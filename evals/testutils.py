@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from datetime import timedelta, timezone, datetime
 from pathlib import Path
 from typing import Any, Callable, Type
 
@@ -84,6 +85,28 @@ class TestSuite:
             with open(figpath / "eval.json", "w") as f:
                 json.dump(result, f, indent=2, ensure_ascii=False)
         return result
+
+
+def main(path: Path, models: dict[str, TestSuite], using_stamp: bool = False):
+    if using_stamp:
+        stamp = datetime.now(timezone(timedelta(hours=9))).strftime(
+            "%Y.%m.%d.KST%H:%M:%S"
+        )
+        path = path / stamp
+
+    path.mkdir(exist_ok=True, parents=True)
+
+    results = {}
+    with tqdm(models.items(), total=len(models)) as pbar:
+        for name, suite in pbar:
+            pbar.set_description_str(name)
+            p = path / name
+            p.mkdir(exist_ok=True)
+            result = suite.test(p)
+            results[name] = result
+
+    with open(path / "result.json", "w") as f:
+        json.dump(results, f, indent=2, ensure_ascii=False)
 
 
 def default_factory(

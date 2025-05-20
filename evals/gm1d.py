@@ -1,6 +1,4 @@
-import json
 import traceback
-from datetime import timedelta, timezone, datetime
 from pathlib import Path
 from typing import Callable, Iterable
 
@@ -14,7 +12,7 @@ from tqdm.auto import tqdm
 from flowmodels.basis import SamplingSupports
 
 from testbed import Testbed
-from testutils import inherit_testbed, kde_stats
+from testutils import inherit_testbed, kde_stats, main
 
 
 def visualize_1d(
@@ -150,28 +148,9 @@ class TestGaussianMixture1D(Testbed):
         return results
 
 
-MODELS = inherit_testbed(TestGaussianMixture1D)
-
-
-def main():
-    PATH = Path("./test.gm1d")
-    STAMP = datetime.now(timezone(timedelta(hours=9))).strftime("%Y.%m.%d.KST%H:%M:%S")
-
-    path = PATH / STAMP
-    path.mkdir(exist_ok=True, parents=True)
-
-    results = {}
-    with tqdm(MODELS.items(), total=len(MODELS)) as pbar:
-        for name, suite in pbar:
-            pbar.set_description_str(name)
-            p = path / name
-            p.mkdir(exist_ok=True)
-            result = suite.test(p)
-            results[name] = result
-
-    with open(path / "result.json", "w") as f:
-        json.dump(results, f, indent=2, ensure_ascii=False)
-
-
 if __name__ == "__main__":
-    main()
+    main(
+        Path("./results/gm1d"),
+        inherit_testbed(TestGaussianMixture1D),
+        using_stamp=True,
+    )
