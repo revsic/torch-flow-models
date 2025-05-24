@@ -55,9 +55,10 @@ class RectifiedFlow(nn.Module, ODEModel, SamplingSupports):
             [FloatLike; []], loss value.
         """
         batch_size, *_ = sample.shape
+        device = sample.device
         # sample
         if t is None:
-            t = torch.rand(batch_size)
+            t = torch.rand(batch_size, device=device)
         if src is None:
             src = torch.randn_like(sample)
         # compute objective
