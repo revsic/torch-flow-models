@@ -32,7 +32,7 @@ def reproduce_sct_cifar10():
     )
     load_model(
         _LossDDPWrapper(model),
-        "./test.workspace/trigflow-cifar10/2025.05.06KST17:05:41-lr5e-4/ckpt/2652/model.safetensors",
+        "./test.workspace/trigflow-cifar10/2025.05.16KST21:12:35-lr5e4-fixproposal/ckpt/4081/model.safetensors",
     )
 
     n_gpus = 2
