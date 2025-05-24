@@ -179,15 +179,14 @@ class ScaledContinuousCM(
         # [B, ...]
         v_t = _t.cos() * prior * sigma_d - _t.sin() * sample
         # ENGINEERING: Out-of-inference mode multiplication for torch-dynamo inductor support
-        _tangents = (_t.cos() * _t.sin() * v_t / sigma_d, t.cos() * t.sin() * sigma_d)
-        # [B, ...], [B, ...], jvp = t.cos() * t.sin() * dF/dt
-        F, jvp, *_ = torch.func.jvp(  # pyright: ignore [reportPrivateImportUsage]
-            EMASupports[Self].reduce(self, ema).F0.forward,
-            (x_t / sigma_d, t),
-            _tangents,
-        )
-        F = F.detach()
-        jvp = jvp.detach()
+        _tangents = (_t.cos() * _t.sin() * v_t, t.cos() * t.sin() * sigma_d)
+        # [B, ...], [B, ...], jvp = sigma_d * t.cos() * t.sin() * dF/dt
+        with torch.inference_mode():
+            F, jvp, *_ = torch.func.jvp(  # pyright: ignore [reportPrivateImportUsage]
+                EMASupports[Self].reduce(self, ema).F0.forward,
+                (x_t / sigma_d, t),
+                _tangents,
+            )
         # warmup scaler
         r = 1.0
         if self._tangent_warmup:
@@ -195,7 +194,7 @@ class ScaledContinuousCM(
             self._steps += 1
         # df/dt = -t.cos() * (sigma_d * F(x_t/sigma_d, t) - dx_t/dt) - t.sin() * (x_t + sigma_d * dF/dt)
         cos_mul_grad = -_t.cos().square() * (sigma_d * F - v_t) - r * (
-            _t.sin() * _t.cos() * x_t + sigma_d * jvp
+            _t.sin() * _t.cos() * x_t + jvp
         )
         # [B, ...]
         estim: torch.Tensor = self.F0.forward(x_t / sigma_d, t)
