@@ -246,7 +246,7 @@ def factory_testbed_shortcut_model[T: Testbed](GivenTestbed: Type[T]):
     return TestbedShortcutModel
 
 
-@register_factory(name="sct")
+@register_factory(name="sct", steps=[4, 2, 1])
 def factory_testbed_sct[T: Testbed](GivenTestbed: Type[T]):
     class TestbedSCT(GivenTestbed):
         def __init__(self):
