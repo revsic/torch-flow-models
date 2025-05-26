@@ -87,7 +87,12 @@ class TestSuite:
         return result
 
 
-def main(path: Path, models: dict[str, TestSuite], using_stamp: bool = False):
+def main(
+    path: Path,
+    models: dict[str, TestSuite],
+    using_stamp: bool = False,
+    leave: bool = True,
+):
     if using_stamp:
         stamp = datetime.now(timezone(timedelta(hours=9))).strftime(
             "%Y.%m.%d.KST%H:%M:%S"
@@ -97,7 +102,7 @@ def main(path: Path, models: dict[str, TestSuite], using_stamp: bool = False):
     path.mkdir(exist_ok=True, parents=True)
 
     results = {}
-    with tqdm(models.items(), total=len(models)) as pbar:
+    with tqdm(models.items(), total=len(models), leave=leave) as pbar:
         for name, suite in pbar:
             pbar.set_description_str(name)
             p = path / name

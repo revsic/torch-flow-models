@@ -103,7 +103,10 @@ class TestMoon2D(TestGaussianMixture1D):
         steps: list[int | None] = [100, 4, 1],
         grid: np.ndarray = GRIDS,
     ):
-        return super().evaluate(steps, grid)
+        _nx = np.sort(np.unique(TestMoon2D.GRIDS[:, 0]))
+        _ny = np.sort(np.unique(TestMoon2D.GRIDS[:, 0]))
+        dxdy = np.abs((_nx[1] - _nx[0]) * (_ny[1] - _ny[0]))
+        return super().evaluate(steps, grid, dxdy)
 
 
 class TestSCurve2D(TestMoon2D):
@@ -175,9 +178,12 @@ if __name__ == "__main__":
     if bed == "all":
         beds = list(EVAL2D_TESTBEDS)
 
-    for bed in beds:
-        main(
-            Path(f"./results/{bed}"),
-            inherit_testbed(EVAL2D_TESTBEDS[bed])["sct"],
-            using_stamp=True,
-        )
+    with tqdm(beds) as pbar:
+        for bed in pbar:
+            pbar.set_description_str(bed)
+            main(
+                Path(f"./results/{bed}"),
+                inherit_testbed(EVAL2D_TESTBEDS[bed]),
+                using_stamp=True,
+                leave=False,
+            )

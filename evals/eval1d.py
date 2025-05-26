@@ -136,6 +136,7 @@ class TestGaussianMixture1D(Testbed):
         self,
         steps: list[int | None] = [100, 4, 1],
         grid: np.ndarray = np.linspace(-3, 3, 200)[:, None],
+        dxdy: float | None = None,
     ) -> dict:
         data, prior = self.dataset()
         if callable(prior):
@@ -145,7 +146,7 @@ class TestGaussianMixture1D(Testbed):
         for step in steps:
             try:
                 r, _ = self.model.sample(prior, step, lambda x: tqdm(x, leave=False))
-                results[step] = kde_stats(data.numpy(), r.numpy(), grid)
+                results[step] = kde_stats(data.numpy(), r.numpy(), grid, dxdy)
             except:
                 results[step] = traceback.format_exc()
         return results
