@@ -181,8 +181,9 @@ class ScaledContinuousCM(
         # ENGINEERING: Out-of-inference mode multiplication for torch-dynamo inductor support
         _tangents = (_t.cos() * _t.sin() * v_t, t.cos() * t.sin() * sigma_d)
         # [B, ...], [B, ...], jvp = sigma_d * t.cos() * t.sin() * dF/dt
-        with torch.inference_mode():
-            F, jvp, *_ = torch.func.jvp(  # pyright: ignore [reportPrivateImportUsage]
+        with torch.no_grad():
+            jvp_fn = torch.compiler.disable(torch.func.jvp, recursive=False)
+            F, jvp, *_ = jvp_fn(
                 EMASupports[Self].reduce(self, ema).F0.forward,
                 (x_t / sigma_d, t),
                 _tangents,
