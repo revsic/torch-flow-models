@@ -8,7 +8,7 @@ from flowmodels.freeformsct import FreeformCT
 from trainer import Cifar10Trainer
 
 
-def reproduce_cvsct_cifar10():
+def reproduce_ffct_cifar10():
     # model definition
     backbone = DDPMpp(
         resolution=32,
@@ -54,4 +54,4 @@ def reproduce_cvsct_cifar10():
 
 
 if __name__ == "__main__":
-    reproduce_cvsct_cifar10()
+    reproduce_ffct_cifar10()
