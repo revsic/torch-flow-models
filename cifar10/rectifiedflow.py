@@ -6,7 +6,7 @@ from flowmodels import RectifiedFlow
 from trainer import Cifar10Trainer
 
 
-def reproduce_trigflow_cifar10():
+def reproduce_rectifiedflow():
     # model definition
     backbone = DDPMpp(
         resolution=32,
@@ -50,4 +50,4 @@ def reproduce_trigflow_cifar10():
 
 
 if __name__ == "__main__":
-    reproduce_trigflow_cifar10()
+    reproduce_rectifiedflow()
