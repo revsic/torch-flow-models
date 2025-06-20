@@ -80,7 +80,7 @@ class ConstantVelocityConsistencyModels(
                 torch.randn(batch_size, device=device) * self.p_std + self.p_mean
             ).exp()
             # [T], in range[0, 1]
-            t = rw_t.atan() / np.pi * 2
+            t = (rw_t / 0.5).atan() / np.pi * 2
         # [B, ...]
         _t = t.view([batch_size] + [1] * (sample.dim() - 1))
         # [B, ...]
@@ -88,8 +88,9 @@ class ConstantVelocityConsistencyModels(
         # [B, ...]
         v_t = sample - src
         with torch.no_grad():
+            jvp_fn = torch.compiler.disable(torch.func.jvp, recursive=False)
             # [B, ...], [B, ...], jvp = dF/dt
-            F, jvp, *_ = torch.func.jvp(  # pyright: ignore [reportPrivateImportUsage]
+            F, jvp, *_ = jvp_fn(  # pyright: ignore [reportPrivateImportUsage]
                 self.F0.forward,
                 (x_t, t),
                 (v_t, torch.ones_like(t)),
