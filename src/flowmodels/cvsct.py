@@ -88,15 +88,15 @@ class ConstantVelocityConsistencyModels(
         # [B, ...]
         v_t = sample - src
         with torch.no_grad():
-            jvp_fn = torch.compiler.disable(torch.func.jvp, recursive=False)
-            # [B, ...], [B, ...], jvp = dF/dt
-            F, jvp, *_ = jvp_fn(  # pyright: ignore [reportPrivateImportUsage]
-                self.F0.forward,
-                (x_t, t),
-                (v_t, torch.ones_like(t)),
+            eps = 0.005
+            jvp = 0.5 / eps * (
+                self.F0.forward((_t + eps) * sample + (1 - _t - eps) * src, t + eps)
+                - self.F0.forward((_t - eps) * sample + (1 - _t + eps) * src, t - eps)
             )
-            F: torch.Tensor = F.detach()
-            jvp: torch.Tensor = jvp.detach()
+        # [B, ...]
+        estim: torch.Tensor = self.F0.forward(x_t, t)
+        # [B, ...]
+        F = estim.detach()
         # df/dt = (x_1 - x_0) + (1 - t) * dF/dt - F(x_t, t)
         grad = (1 - _t) * (v_t + (1 - _t) * jvp - F)
         # reducing dimension
@@ -105,8 +105,6 @@ class ConstantVelocityConsistencyModels(
         normalized_tangent = grad / (
             _norm := grad.norm(p=2, dim=rdim, keepdim=True) + 0.1
         )
-        # [B, ...]
-        estim: torch.Tensor = self.F0.forward(x_t, t)
         # [B]
         mse = (estim - F - normalized_tangent).square().mean(dim=rdim)
         # [B], adaptive weighting
