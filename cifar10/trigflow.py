@@ -1,74 +1,63 @@
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-import numpy as np
 import torch
 
-from ddpmpp import DDPMpp
 from flowmodels.sct import TrigFlow, ScaledContinuousCMScheduler
+from nvidiaedm import SongUNet
 from trainer import Cifar10Trainer
-
-
-class InverseSquareRootScheduler(torch.optim.lr_scheduler.LRScheduler):
-    def __init__(
-        self,
-        optimizer: torch.optim.Optimizer,
-        alpha_ref: float = 0.001,
-        t_ref: int = 70000,
-        last_epoch: int = -1,
-    ):
-        self.alpha_ref = alpha_ref
-        self.t_ref = t_ref
-        super().__init__(optimizer, last_epoch)
-
-    def get_lr(self):
-        return [
-            self.alpha_ref / np.sqrt(max(self.last_epoch / self.t_ref, 1.0))
-            for _ in self.optimizer.param_groups
-        ]
-
-    def _get_closed_form_lr(self):
-        return self.get_lr()
 
 
 def reproduce_trigflow_cifar10():
     # model definition
-    backbone = DDPMpp(
-        resolution=32,
+    backbone = SongUNet(
+        input_size=32,
         in_channels=3,
-        nf=128,
-        ch_mult=[1, 2, 2, 2],
+        out_channels=3,
+        num_classes=0,
+        augment_dim=0,
+        model_channels=128,
+        channel_mult=[2, 2, 2],  # [1, 2, 2, 2],
+        channel_mult_emb=4,
+        num_blocks=4,
         attn_resolutions=[16],
-        num_res_blocks=4,
-        init_scale=0.0,
-        skip_rescale=True,
-        dropout=0.13,
-        pe_scale=0.02,
-        use_shift_scale_norm=True,
-        use_double_norm=True,
+        dropout=0.2,  # 0.13,
+        label_dropout=0,
+        embedding_type="positional",
+        channel_mult_noise=1.,
+        encoder_type="standard",
+        decoder_type="standard",
+        resample_filter=[1, 1]
     )
     model = TrigFlow(
         backbone,
         ScaledContinuousCMScheduler(
+            sigma_d=1.0,
             p_mean=-1.0,
             p_std=1.4,
         ),
     )
 
-    n_gpus = 2
-    n_grad_accum = 1
+    n_gpus = 1
+    n_grad_accum = 4
     # timestamp
     stamp = datetime.now(timezone(timedelta(hours=9))).strftime("%Y.%m.%dKST%H:%M:%S")
     trainer = Cifar10Trainer(
         model,
-        batch_size=512 // n_gpus // n_grad_accum,
-        lr=0.0005,  # paper: 0.001 (diverge)
-        betas=(0.9, 0.999),
-        eps=1e-8,
+        batch_size=768 // n_gpus // n_grad_accum,
         shuffle=True,
         dataset_path=Path("./"),
         workspace=Path(f"./test.workspace/trigflow-cifar10/{stamp}"),
     )
+    trainer.optim = torch.optim.AdamW(
+        model.parameters(),
+        0.0002,
+        (0.9, 0.95),
+        weight_decay=0.0,
+    )
+
+    CIFAR_MEAN = torch.tensor([-0.0171, -0.0348, -0.1054])[None, :, None, None]
+    CIFAR_STD = torch.tensor([0.4950, 0.4874, 0.5245])[None, :, None, None]
 
     trainer.train(
         total=400000 * n_grad_accum,
@@ -76,6 +65,8 @@ def reproduce_trigflow_cifar10():
         gradient_accumulation_steps=n_grad_accum,
         _eval_interval=20 * n_grad_accum,
         _fid_steps=18,
+        _preproc=lambda x: (x - CIFAR_MEAN.to(x)) / CIFAR_STD.to(x),
+        _postproc=lambda x: x * CIFAR_STD.to(x) + CIFAR_MEAN.to(x),
     )
 
 

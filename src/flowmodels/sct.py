@@ -289,15 +289,14 @@ class TrigFlow(ScaledContinuousCM):
         # reducing dimension
         rdim = [i + 1 for i in range(x_t.dim() - 1)]
         # [B]
-        mse = (estim - v_t).square().mean(dim=rdim)
-        # [B], adaptive weighting
-        logvar = self._ada_weight.forward(t)
-        # [B], different with
-        loss = mse * logvar.exp() - logvar
+        mse = (estim - v_t).square().mean(dim=rdim).sqrt()
+        cossim = (1 - F.cosine_similarity(estim, v_t, dim=1)).mean(dim=rdim)
+        # [B], Cosine weighting
+        loss = ((mse + cossim) * t.cos()).mean()
         with torch.no_grad():
             self._debug_from_loss = {
                 "sct/mse": mse.mean().item(),
-                "sct/logvar": logvar.mean().item(),
+                "sct/cossim": cossim.mean().item(),
             }
         return loss.mean()
 
