@@ -290,7 +290,7 @@ class TrigFlow(ScaledContinuousCM):
         rdim = [i + 1 for i in range(x_t.dim() - 1)]
         # [B]
         mse = (estim - v_t).square().mean(dim=rdim).sqrt()
-        cossim = (1 - F.cosine_similarity(estim, v_t, dim=1)).mean(dim=rdim)
+        cossim = (1 - F.cosine_similarity(estim, v_t, dim=1)).mean(dim=rdim[:-1])
         # [B], Cosine weighting
         loss = ((mse + cossim) * t.cos()).mean()
         with torch.no_grad():

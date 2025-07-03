@@ -24,7 +24,7 @@ def reproduce_trigflow_cifar10():
         dropout=0.2,  # 0.13,
         label_dropout=0,
         embedding_type="positional",
-        channel_mult_noise=1.,
+        channel_mult_noise=1,
         encoder_type="standard",
         decoder_type="standard",
         resample_filter=[1, 1]
@@ -39,7 +39,7 @@ def reproduce_trigflow_cifar10():
     )
 
     n_gpus = 1
-    n_grad_accum = 4
+    n_grad_accum = 2
     # timestamp
     stamp = datetime.now(timezone(timedelta(hours=9))).strftime("%Y.%m.%dKST%H:%M:%S")
     trainer = Cifar10Trainer(
@@ -56,8 +56,8 @@ def reproduce_trigflow_cifar10():
         weight_decay=0.0,
     )
 
-    CIFAR_MEAN = torch.tensor([-0.0171, -0.0348, -0.1054])[None, :, None, None]
-    CIFAR_STD = torch.tensor([0.4950, 0.4874, 0.5245])[None, :, None, None]
+    CIFAR_MEAN = torch.tensor([-0.0171, -0.0348, -0.1054])[:, None, None]
+    CIFAR_STD = torch.tensor([0.4950, 0.4874, 0.5245])[:, None, None]
 
     trainer.train(
         total=400000 * n_grad_accum,
