@@ -45,19 +45,14 @@ def reproduce_trigflow_cifar10():
     trainer = Cifar10Trainer(
         model,
         batch_size=768 // n_gpus // n_grad_accum,
+        lr=0.0002,  # paper: 0.001 (diverge)
+        betas=(0.9, 0.95),  # paper: (0.9, 0.999)
+        eps=1e-8,
+        weight_decay=0.0,
         shuffle=True,
         dataset_path=Path("./"),
         workspace=Path(f"./test.workspace/trigflow-cifar10/{stamp}"),
     )
-    trainer.optim = torch.optim.AdamW(
-        model.parameters(),
-        0.0002,
-        (0.9, 0.95),
-        weight_decay=0.0,
-    )
-
-    CIFAR_MEAN = torch.tensor([-0.0171, -0.0348, -0.1054])[:, None, None]
-    CIFAR_STD = torch.tensor([0.4950, 0.4874, 0.5245])[:, None, None]
 
     trainer.train(
         total=400000 * n_grad_accum,
@@ -65,8 +60,6 @@ def reproduce_trigflow_cifar10():
         gradient_accumulation_steps=n_grad_accum,
         _eval_interval=20 * n_grad_accum,
         _fid_steps=18,
-        _preproc=lambda x: (x - CIFAR_MEAN.to(x)) / CIFAR_STD.to(x),
-        _postproc=lambda x: x * CIFAR_STD.to(x) + CIFAR_MEAN.to(x),
     )
 
 
