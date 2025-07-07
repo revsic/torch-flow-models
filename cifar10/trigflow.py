@@ -1,34 +1,9 @@
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-import numpy as np
-import torch
-
 from ddpmpp import DDPMpp
 from flowmodels.sct import TrigFlow, ScaledContinuousCMScheduler
 from trainer import Cifar10Trainer
-
-
-class InverseSquareRootScheduler(torch.optim.lr_scheduler.LRScheduler):
-    def __init__(
-        self,
-        optimizer: torch.optim.Optimizer,
-        alpha_ref: float = 0.001,
-        t_ref: int = 70000,
-        last_epoch: int = -1,
-    ):
-        self.alpha_ref = alpha_ref
-        self.t_ref = t_ref
-        super().__init__(optimizer, last_epoch)
-
-    def get_lr(self):
-        return [
-            self.alpha_ref / np.sqrt(max(self.last_epoch / self.t_ref, 1.0))
-            for _ in self.optimizer.param_groups
-        ]
-
-    def _get_closed_form_lr(self):
-        return self.get_lr()
 
 
 def reproduce_trigflow_cifar10():

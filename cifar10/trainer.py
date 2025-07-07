@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Protocol
+from typing import Callable, Protocol
 
 import numpy as np
 import torch
@@ -53,6 +53,7 @@ class Cifar10Trainer:
         lr: float = 0.001,
         betas: tuple[float, float] = (0.9, 0.999),
         eps: float = 1e-8,
+        weight_decay: float = 0.0,
         shuffle: bool = True,
         num_workers: int = 0,
         pin_memory: bool = True,
@@ -98,6 +99,7 @@ class Cifar10Trainer:
             lr=lr,
             betas=betas,
             eps=eps,
+            weight_decay=weight_decay,
         )
 
         self.scheduler: torch.optim.lr_scheduler.LRScheduler | None = None
@@ -120,6 +122,9 @@ class Cifar10Trainer:
         _load_ema_ckpt: Path | None = None,
         _start_step: int = 0,
         _fid_steps: int | None = None,
+        _nan_to_num: float | None = None,
+        _preproc: Callable[[torch.Tensor], torch.Tensor] | None = None,
+        _postproc: Callable[[torch.Tensor], torch.Tensor] | None = None,
     ):
         # validity check
         assert _eval_interval > 0
@@ -173,13 +178,19 @@ class Cifar10Trainer:
             if _load_ema_ckpt:
                 load_model(ema.module, _load_ema_ckpt)
 
+        # identity mapping
+        if _preproc is None:
+            _preproc = lambda x: x
+        if _postproc is None:
+            _postproc = lambda x: x
+
         step = _start_step
         epochs = -(-total // len(train_loader))
         for epoch in tqdm(range(epochs), disable=not _main_proc):
             with tqdm(train_loader, leave=False, disable=not _main_proc) as pbar:
                 for sample, labels in pbar:
                     with accelerator.accumulate(model):
-                        loss = model(sample * 2 - 1)
+                        loss = model(_preproc(sample * 2 - 1))
                         accelerator.backward(loss)
                         if clip_grad_norm:
                             accelerator.clip_grad_norm_(
@@ -187,6 +198,11 @@ class Cifar10Trainer:
                             )
                         # early collection
                         loss = loss.item()
+                        # for numerical stability
+                        if _nan_to_num is not None:
+                            for param in model.parameters():
+                                if param.grad is not None:
+                                    torch.nan_to_num_(param.grad, nan=_nan_to_num, posinf=_nan_to_num, neginf=_nan_to_num)
 
                         if updated := accelerator.sync_gradients:
                             step += 1
@@ -231,39 +247,34 @@ class Cifar10Trainer:
             if _main_proc and epoch % max(1, epochs // _eval_interval) == 0:
                 with torch.no_grad():
                     model.eval()
-                    move = lambda tensor: (
-                        tensor.to(
-                            accelerator.device,
-                            dtype=next(self.model.parameters()).dtype,
-                        )
-                    )
+                    _device, _dtype = accelerator.device, next(self.model.parameters()).dtype
+                    move = lambda tensor: tensor.to(_device, dtype=_dtype)
                     losses = [
-                        self.model.loss(move(bunch) * 2 - 1).item()
+                        self.model.loss(_preproc(move(bunch) * 2 - 1)).item()
                         for bunch, labels in tqdm(self.test_loader, leave=False)
                     ]
                     self.test_log.add_scalar(f"loss", np.mean(losses), step)
 
                     # plot image
-                    sample, _ = next(iter(self.test_loader))
-                    sample = move(sample)
-                    _, c, h, w = sample.shape
+                    _sample, _ = next(iter(self.test_loader))
+                    _, c, h, w = _sample.shape
                     sample, trajectories = self.model.sample(
                         torch.randn(
                             *(num_samples, c, h, w),
-                            generator=torch.Generator(sample.device).manual_seed(0),
-                            dtype=sample.dtype,
-                            device=sample.device,
+                            generator=torch.Generator(_device).manual_seed(0),
+                            dtype=_dtype,
+                            device=_device,
                         ),
                         verbose=lambda x: tqdm(x, leave=False),
                     )
                     for i, img in enumerate(sample):
-                        img = ((img + 1) * 0.5).clamp(0.0, 1.0)
+                        img = ((_postproc(img) + 1) * 0.5).clamp(0.0, 1.0)
                         self.test_log.add_image(f"sample/{i}", img, step)
 
                         for j, traj in list(enumerate(trajectories))[
                             :: -(-len(trajectories) // 4)
                         ]:
-                            point = ((traj[i] + 1) * 0.5).clamp(0.0, 1.0)
+                            point = ((_postproc(traj[i]) + 1) * 0.5).clamp(0.0, 1.0)
                             self.test_log.add_image(f"sample/{i}/traj@{j}", point, step)
 
                     fid = compute_fid_with_model(
@@ -274,7 +285,7 @@ class Cifar10Trainer:
                         sampling_batch_size=self.test_loader.batch_size,
                         device=accelerator.device,
                         scaler=lambda x: (
-                            (x - x.amin()) / (x.amax() - x.amin()) * 255
+                            ((_postproc(x) + 1) * 0.5).clamp(0.0, 1.0) * 255
                         ).to(torch.uint8),
                     )
                     model.train()
