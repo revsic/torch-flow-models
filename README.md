@@ -104,3 +104,6 @@ sampled, trajectory = model.sample(torch.randn(...))
 - IMM[[arXiv:2503.07565](https://arxiv.org/abs/2503.07565)]: Inductive Moment Matching, Zhou et al., 2025.
     - Imports: `InductivMomentMatching`
     - Examples: [samples/imm.ipynb](./samples/imm.ipynb)
+- MeanFlow[[arXiv:2505.13447](https://arxiv.org/abs/2505.13447)]: Mean Flows for One-step Generative Modeling, Geng et al., 2025.
+    - Imports: `MeanFlow`
+    - Examples: [samples/meanflow.ipynb](./samples/meanflow.ipynb)
