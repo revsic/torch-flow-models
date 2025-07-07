@@ -145,10 +145,10 @@ class ScaledContinuousCM(
     ) -> torch.Tensor:
         """Compute the loss from the sample.
         Args:
-            sample: [FloatLike; [B, ...]], training data, `X_1`.
+            sample: [FloatLike; [B, ...]], training data, `X_0`.
             t: [FloatLike; [B]], target timesteps in range[0, 1],
                 sample from the proposal distribution if not provided.
-            prior: [FloatLike; [B, ...]], sample from the prior distribution, `X_0`,
+            prior: [FloatLike; [B, ...]], sample from the prior distribution, `X_1`,
                 sample from gaussian if not provided.
         Returns:
             [FloatLike; []], loss value.
