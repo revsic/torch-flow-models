@@ -52,7 +52,7 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
             [FloatLike; [B, ...]], the estimated velocity.
         """
         # targeting the origin point
-        return self.forward(x_t, t, t)
+        return self.forward(x_t, t, torch.zeros_like(t))
 
     def predict(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         """Predict the sample points `x_0` from the `x_t` w.r.t. the timestep `t`.
@@ -62,7 +62,8 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         Returns:
             the predicted sample points `x_0`.
         """
-        return x_t - t * self.forward(x_t, t, t)
+        bsize, = t.shape
+        return x_t - t.view([bsize] + [1] * (x_t.dim() - 1)) * self.velocity(x_t, t)
 
     def loss(
         self,
