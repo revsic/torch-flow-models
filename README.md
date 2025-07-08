@@ -107,3 +107,6 @@ sampled, trajectory = model.sample(torch.randn(...))
 - MeanFlow[[arXiv:2505.13447](https://arxiv.org/abs/2505.13447)]: Mean Flows for One-step Generative Modeling, Geng et al., 2025.
     - Imports: `MeanFlow`
     - Examples: [samples/meanflow.ipynb](./samples/meanflow.ipynb)
+- AYF-EMD[[arXiv:2506.14603](https://arxiv.org/abs/2506.14603)]: Align Your Flow: Scaling Continuous-Time Flow Map Distillation, Sabour et al., 2025.
+    - Imports: `AlignYourFlow`
+    - Examples: [samples/alignyourflow.ipynb](./samples/alignyourflow.ipynb)

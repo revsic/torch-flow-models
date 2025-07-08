@@ -1,3 +1,4 @@
+from flowmodels.alignyourflow import AlignYourFlow
 from flowmodels.caf import ConstantAccelerationFlow
 from flowmodels.cm import (
     ConsistencyModel,
