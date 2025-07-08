@@ -352,7 +352,9 @@ class TrigFlow(ScaledContinuousCM):
                 # [B]
                 _t = t_next.repeat(batch_size)
                 # [B, ...], rescale t-steps into range[0, 1]
-                d_prime = sigma_d * self.F0.forward(x.to(p) / sigma_d, _t.to(p)).to(dtype)
+                d_prime = sigma_d * self.F0.forward(x.to(p) / sigma_d, _t.to(p)).to(
+                    dtype
+                )
                 x = torch.cos(t_hat - t_next) * x_hat - torch.sin(t_hat - t_next) * (
                     0.5 * d_cur + 0.5 * d_prime
                 )

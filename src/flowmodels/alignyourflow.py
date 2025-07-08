@@ -3,15 +3,15 @@ from typing import Callable, Iterable
 import torch
 import torch.nn as nn
 
-from flowmodels.basis import ODEModel, PredictionSupports, SamplingSupports, VelocitySupports
-
-
-class AlignYourFlow(
-    nn.Module,
+from flowmodels.basis import (
     ODEModel,
     PredictionSupports,
-    SamplingSupports
-):
+    SamplingSupports,
+    VelocitySupports,
+)
+
+
+class AlignYourFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
     """Align Your Flow: Scaling Continuous-Time Flow Map Distillation, Sabour et al., 2025.[arXiv:2506.14603]"""
 
     def __init__(
@@ -40,7 +40,9 @@ class AlignYourFlow(
     def _debug_purpose(self):
         return {**self._debug_from_loss, **getattr(self.F0, "_debug_purpose", {})}
 
-    def forward(self, x_t: torch.Tensor, t: torch.Tensor, r: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x_t: torch.Tensor, t: torch.Tensor, r: torch.Tensor
+    ) -> torch.Tensor:
         """Estimate the mean velocity from the given `t` to `r`.
         Args:
             x_t: [FloatLike; [B, ...]] the given noised sample, `x_t`.
@@ -70,7 +72,7 @@ class AlignYourFlow(
         Returns:
             the predicted sample points `x_0`.
         """
-        bsize, = t.shape
+        (bsize,) = t.shape
         return x_t - t.view([bsize] + [1] * (x_t.dim() - 1)) * self.velocity(x_t, t)
 
     def loss(
@@ -117,9 +119,7 @@ class AlignYourFlow(
         # [B, ...], [B, ...]
         jvp_fn = torch.compiler.disable(torch.func.jvp, recursive=False)
         F, jvp = jvp_fn(
-            self.forward,
-            (x_t, t, s),
-            (v_t, torch.ones_like(t), torch.zeros_like(s))
+            self.forward, (x_t, t, s), (v_t, torch.ones_like(t), torch.zeros_like(s))
         )
         # [B, ...]
         f = x_t - (_t - _s) * F

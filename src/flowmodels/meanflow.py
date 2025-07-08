@@ -10,6 +10,7 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
     """
     Mean Flows for One-step Generative Modeling, Geng et al., 2025.
     """
+
     DEFAULT_STEPS = 4
 
     def __init__(
@@ -17,7 +18,7 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         module: nn.Module,
         p_mean: float = -0.4,
         p_std: float = 1.0,
-        r_mask: float = 0.75
+        r_mask: float = 0.75,
     ):
         super().__init__()
         self.velocity_estim = module
@@ -32,7 +33,9 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
     def _debug_purpose(self):
         return {**self._debug_from_loss, **getattr(self.F0, "_debug_purpose", {})}
 
-    def forward(self, x_t: torch.Tensor, t: torch.Tensor, r: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x_t: torch.Tensor, t: torch.Tensor, r: torch.Tensor
+    ) -> torch.Tensor:
         """Estimate the mean velocity from the given `t` to `r`.
         Args:
             x_t: [FloatLike; [B, ...]] the given noised sample, `x_t`.
@@ -62,7 +65,7 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         Returns:
             the predicted sample points `x_0`.
         """
-        bsize, = t.shape
+        (bsize,) = t.shape
         return x_t - t.view([bsize] + [1] * (x_t.dim() - 1)) * self.velocity(x_t, t)
 
     def loss(
