@@ -172,12 +172,12 @@ class ScaledContinuousCM(
             t = t.to(device) * np.pi * 0.5
             # compute a reciprocal of the prior weighting term from the given t
             rw_t = t.tan() * sigma_d
-        # [B, ...], `self.noise` automatically scale the prior with `sigma_d`
-        x_t = self.noise(sample, t / np.pi * 2, prior)
         # [B, ...]
-        _t = t.view([batch_size] + [1] * (x_t.dim() - 1))
+        _t = t.view([batch_size] + [1] * (sample.dim() - 1))
         # [B, ...]
-        v_t = _t.cos() * prior * sigma_d - _t.sin() * sample
+        x_t = _t.cos() * sample + _t.sin() * sigma_d * prior
+        # [B, ...]
+        v_t = _t.cos() * sigma_d * prior - _t.sin() * sample
         # ENGINEERING: Out-of-inference mode multiplication for torch-dynamo inductor support
         _tangents = (_t.cos() * _t.sin() * v_t, t.cos() * t.sin() * sigma_d)
         # [B, ...], [B, ...], jvp = sigma_d * t.cos() * t.sin() * dF/dt
@@ -227,7 +227,8 @@ class ScaledContinuousCM(
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """Forward to the MultistepConsistencySampler."""
-        return self.sampler.sample(self, prior, steps, verbose)
+        sigma_d = self.scheduler.sigma_d
+        return self.sampler.sample(self, prior * sigma_d, steps, verbose)
 
     def noise(
         self,
@@ -278,10 +279,10 @@ class TrigFlow(ScaledContinuousCM):
         else:
             # scale into range[0, pi/2]
             t = t * np.pi * 0.5
-        # [B, ...], `self.noise` automatically scale the prior with `sigma_d`
-        x_t = self.noise(sample, t / np.pi * 2, prior)
         # [B, ...]
-        _t = t.view([batch_size] + [1] * (x_t.dim() - 1))
+        _t = t.view([batch_size] + [1] * (sample.dim() - 1))
+        # [B, ...]
+        x_t = _t.cos() * sample + _t.sin() * sigma_d * prior
         # [B, ...]
         v_t = _t.cos() * sigma_d * prior - _t.sin() * sample
         # [B, ...]
