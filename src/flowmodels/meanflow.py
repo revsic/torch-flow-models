@@ -109,10 +109,12 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         x_t = (1 - bt) * sample + bt * src
         v_t = src - sample
         # jvp for meanflow identity
-        jvp_fn = torch.compiler.disable(torch.func.jvp, recursive=False)
+        jvp_fn = torch.compiler.disable(
+            torch.func.jvp, recursive=False  # pyright: ignore
+        )
         u, dudt = jvp_fn(
             self.forward,
-            (x_t, t, r),
+            (x_t, t, r),  # pyright: ignore
             (v_t, torch.ones_like(t), torch.zeros_like(r)),
         )
         # [B, ...]

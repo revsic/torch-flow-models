@@ -117,9 +117,13 @@ class AlignYourFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
             with torch.no_grad():
                 v_t = self.teacher.velocity(x_t, t)
         # [B, ...], [B, ...]
-        jvp_fn = torch.compiler.disable(torch.func.jvp, recursive=False)
+        jvp_fn = torch.compiler.disable(
+            torch.func.jvp, recursive=False  # pyright: ignore
+        )
         F, jvp = jvp_fn(
-            self.forward, (x_t, t, s), (v_t, torch.ones_like(t), torch.zeros_like(s))
+            self.forward,
+            (x_t, t, s),  # pyright: ignore
+            (v_t, torch.ones_like(t), torch.zeros_like(s)),
         )
         # [B, ...]
         f = x_t - (_t - _s) * F
@@ -157,7 +161,8 @@ class AlignYourFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
             prior: [FloatLike; [B, ...]], samples from the source distribution, `X_0`.
             steps: the number of the steps.
         """
-        steps = steps or self.DEFAULT_STEPS
+        steps = steps or self.DEFAULT_STEPS  # pyright: ignore
+        assert isinstance(steps, int)
         if verbose is None:
             verbose = lambda x: x
         # loop

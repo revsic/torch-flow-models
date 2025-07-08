@@ -16,9 +16,9 @@ from testutils import inherit_testbed, main
 
 
 def _grid(
-    x_range: tuple[int, int],
+    x_range: tuple[float, float],
     x_samples: int,
-    y_range: tuple[int, int],
+    y_range: tuple[float, float],
     y_samples: int,
 ):
     xspace = np.linspace(*x_range, x_samples)
@@ -57,7 +57,7 @@ def visualize_2d(
 
 
 class TestMoon2D(TestGaussianMixture1D):
-    GRIDS = _grid([-1.5, 1.5], 200, [-1.5, 1.5], 200)
+    GRIDS = _grid((-1.5, 1.5), 200, (-1.5, 1.5), 200)
 
     @classmethod
     def default_backbone(cls, dim: int = 1):
@@ -102,15 +102,17 @@ class TestMoon2D(TestGaussianMixture1D):
         self,
         steps: list[int | None] = [100, 4, 1],
         grid: np.ndarray = GRIDS,
+        dxdy: float | None = None,
     ):
         _nx = np.sort(np.unique(TestMoon2D.GRIDS[:, 0]))
         _ny = np.sort(np.unique(TestMoon2D.GRIDS[:, 0]))
-        dxdy = np.abs((_nx[1] - _nx[0]) * (_ny[1] - _ny[0]))
+        if dxdy is None:
+            dxdy = np.abs((_nx[1] - _nx[0]) * (_ny[1] - _ny[0]))
         return super().evaluate(steps, grid, dxdy)
 
 
 class TestSCurve2D(TestMoon2D):
-    GRIDS = _grid([-1.5, 1.5], 200, [-2.5, 2.5], 200)
+    GRIDS = _grid((-1.5, 1.5), 200, (-2.5, 2.5), 200)
 
     def dataset(self, size: int = 100000):
         points, _ = sklearn.datasets.make_s_curve(size, noise=0.05, random_state=0)
@@ -120,7 +122,7 @@ class TestSCurve2D(TestMoon2D):
 
 
 class TestSwissRoll2D(TestMoon2D):
-    GRIDS = _grid([-1.5, 1.5], 200, [-1.5, 1.5], 200)
+    GRIDS = _grid((-1.5, 1.5), 200, (-1.5, 1.5), 200)
 
     def dataset(self, size: int = 100000):
         points, _ = sklearn.datasets.make_swiss_roll(size, noise=0.05, random_state=0)
@@ -130,7 +132,7 @@ class TestSwissRoll2D(TestMoon2D):
 
 
 class TestCircles2D(TestMoon2D):
-    GRIDS = _grid([-1.5, 1.5], 200, [-1.5, 1.5], 200)
+    GRIDS = _grid((-1.5, 1.5), 200, (-1.5, 1.5), 200)
 
     def dataset(self, size: int = 100000):
         points, _ = sklearn.datasets.make_circles(size, noise=0.05, random_state=0)
@@ -138,7 +140,7 @@ class TestCircles2D(TestMoon2D):
 
 
 class TestCheckerboard(TestMoon2D):
-    GRIDS = _grid([-2.5, 2.5], 200, [-2.5, 2.5], 200)
+    GRIDS = _grid((-2.5, 2.5), 200, (-2.5, 2.5), 200)
 
     def dataset(self, size: int = 100000):
         grid = np.stack(

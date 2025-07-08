@@ -182,10 +182,12 @@ class ScaledContinuousCM(
         _tangents = (_t.cos() * _t.sin() * v_t, t.cos() * t.sin() * sigma_d)
         # [B, ...], [B, ...], jvp = sigma_d * t.cos() * t.sin() * dF/dt
         with torch.no_grad():
-            jvp_fn = torch.compiler.disable(torch.func.jvp, recursive=False)
+            jvp_fn = torch.compiler.disable(
+                torch.func.jvp, recursive=False  # pyright: ignore
+            )
             F, jvp, *_ = jvp_fn(
                 EMASupports[Self].reduce(self, ema).F0.forward,
-                (x_t / sigma_d, t),
+                (x_t / sigma_d, t),  # pyright: ignore
                 _tangents,
             )
         # warmup scaler
