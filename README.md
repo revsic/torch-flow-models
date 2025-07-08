@@ -110,3 +110,6 @@ sampled, trajectory = model.sample(torch.randn(...))
 - AYF-EMD[[arXiv:2506.14603](https://arxiv.org/abs/2506.14603)]: Align Your Flow: Scaling Continuous-Time Flow Map Distillation, Sabour et al., 2025.
     - Imports: `AlignYourFlow`
     - Examples: [samples/alignyourflow.ipynb](./samples/alignyourflow.ipynb)
+- FMM[[arXiv:2406.07507](https://arxiv.org/abs/2406.07507)]: Flow map matching with stochastic interpolants: A mathematical framework for consistency models, Boffi et al., 2024.
+    - Imports: `FlowMapMatching`
+    - Examples: [samples/fmm.ipynb](./samples/fmm.ipynb)
