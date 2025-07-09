@@ -1,4 +1,5 @@
 import copy
+import traceback
 from dataclasses import dataclass, field
 from datetime import timedelta, timezone, datetime
 from pathlib import Path
@@ -96,6 +97,7 @@ def main(
     models: dict[str, TestSuite],
     using_stamp: bool = False,
     leave: bool = True,
+    skip_exist: bool = False,
 ):
     if using_stamp:
         stamp = datetime.now(timezone(timedelta(hours=9))).strftime(
@@ -111,7 +113,14 @@ def main(
             pbar.set_description_str(name)
             p = path / name
             p.mkdir(exist_ok=True)
-            result = suite.test(p)
+            if skip_exist and (p / "eval.json").exists():
+                results[name] = json.loads((p / "eval.json").read_text())
+                continue
+            try:
+                result = suite.test(p)
+            except:
+                result = traceback.format_exc()
+
             results[name] = result
 
     with open(path / "result.json", "w") as f:

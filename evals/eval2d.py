@@ -12,7 +12,7 @@ from tqdm import tqdm
 from flowmodels.basis import SamplingSupports
 
 from eval1d import TestGaussianMixture1D
-from testutils import inherit_testbed, main
+from testutils import inherit_testbed, main, FACTORY_TESTBED_CAF_ARGS
 
 
 def _grid(
@@ -46,14 +46,32 @@ def visualize_2d(
     with torch.no_grad():
         for step in steps:
             x_t, x_ts = model.sample(prior, step, verbose)
+            # remove NaN
+            mask = ~x_t.isnan().any(dim=-1)
+            x_t = x_t[mask]
+            x_ts = [_x_t[mask] for _x_t in x_ts]
 
+            plt.close()
             plt.figure()
-            plt.scatter(*x_t.T, marker="x", label=f"{name}-{step}")
-            plt.scatter(*gt[:500].T, marker="x", label="gt", alpha=0.5)
+            plt.scatter(*x_t.T, marker="x", label=f"{name}-{step}", alpha=0.1)
+            plt.scatter(*gt[:500].T, marker="x", label="gt", alpha=0.3)
             plt.legend()
+            if _save_fig:
+                plt.savefig(_save_fig / f"{name}-{step}-scatter.png")
+
+            plt.close()
+            plt.figure()
+            plt.hist2d(*x_t[~x_t.isnan().any(dim=1)].T, bins=(100, 100), density=True)
+            if _save_fig:
+                plt.savefig(_save_fig / f"{name}-{step}-hist.png")
+
+            for i in torch.randperm(len(x_t))[:30]:
+                p = torch.stack([prior[i]] + [_x_t[i] for _x_t in x_ts])
+                plt.plot(p[:, 0], p[:, 1], "--", color="r")
+                plt.plot(p[-1, 0], p[-1, 1], "->", color="r")
 
             if _save_fig:
-                plt.savefig(_save_fig / f"{name}-{step}.png")
+                plt.savefig(_save_fig / f"{name}-{step}-traj.png")
 
 
 class TestMoon2D(TestGaussianMixture1D):
@@ -61,16 +79,19 @@ class TestMoon2D(TestGaussianMixture1D):
 
     @classmethod
     def default_backbone(cls, dim: int = 1):
+        # TODO: 512 hiddens / 6 layers
         return nn.Sequential(
-            nn.Linear(2 + dim, 64),
+            nn.Linear(2 + dim, 512),
             nn.ReLU(),
-            nn.Linear(64, 64),
-            nn.ReLU(),
-            nn.Linear(64, 64),
-            nn.ReLU(),
-            nn.Linear(64, 64),
-            nn.ReLU(),
-            nn.Linear(64, 2),
+            *[
+                layer
+                for _ in range(6 - 2)
+                for layer in (
+                    nn.Linear(512, 512),
+                    nn.ReLU(),
+                )
+            ],
+            nn.Linear(512, 2),
         )
 
     def dataset(self, size: int = 100000):
@@ -180,6 +201,8 @@ if __name__ == "__main__":
     if bed == "all":
         beds = list(EVAL2D_TESTBEDS)
 
+    FACTORY_TESTBED_CAF_ARGS["channels"] = 2
+
     with tqdm(beds) as pbar:
         for bed in pbar:
             pbar.set_description_str(bed)
@@ -188,4 +211,5 @@ if __name__ == "__main__":
                 inherit_testbed(EVAL2D_TESTBEDS[bed]),
                 using_stamp=True,
                 leave=False,
+                skip_exist=True,
             )
