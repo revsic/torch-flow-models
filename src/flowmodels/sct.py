@@ -54,12 +54,13 @@ class _AdaptiveWeights(nn.Linear):
 class ScaledContinuousCM(
     nn.Module,
     ScoreModel,
-    ForwardProcessSupports,
     PredictionSupports,
     SamplingSupports,
     VelocitySupports,
 ):
     """sCT: Simplifying, Stabilizing & Scailing Continuous-Time Consistency Models, Lu & Song, 2024.[arXiv:2410.11081]"""
+
+    DEFAULT_STEPS = 2
 
     def __init__(
         self,
@@ -71,7 +72,6 @@ class ScaledContinuousCM(
         super().__init__()
         self.F0 = module
         self.scheduler = scheduler
-        self.sampler = MultistepConsistencySampler()
         self._tangent_warmup, self._steps = tangent_warmup, 0
         self._ada_weight = _AdaptiveWeights(_ada_weight_size)
         # debug purpose
@@ -225,34 +225,52 @@ class ScaledContinuousCM(
     def sample(
         self,
         prior: torch.Tensor,
-        steps: int | None = None,
+        steps: int | list[float] | None = None,
         verbose: Callable[[range], Iterable] | None = None,
+        sigma_max: float = 80.0,
+        _prescale_prior: bool = True,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
-        """Forward to the MultistepConsistencySampler."""
+        """Customized MultistepConsistencySampler."""
+        # shortcuts
         sigma_d = self.scheduler.sigma_d
-        return self.sampler.sample(self, prior * sigma_d, steps, verbose)
-
-    def noise(
-        self,
-        x_0: torch.Tensor,
-        t: torch.Tensor,
-        prior: torch.Tensor | None = None,
-    ) -> torch.Tensor:
-        """Noise the given sample `x_0` to the `x_t` w.r.t. the timestep `t` and the `prior`.
-        Args:
-            x_0: [FloatLike; [B, ...]], the given samples, `x_0`.
-            t: [torch.long; [B]], the target timesteps in range[0, 1].
-            prior: [FloatLike; [B, ...]], the samples from the prior distribution.
-        Returns:
-            noised sample, `x_t`.
-        """
-        (bsize,) = t.shape
-        if prior is None:
-            prior = torch.randn_like(x_0)
-        # [B, ...], scale in range [0, pi/2]
-        t = (t * np.pi * 0.5).view([bsize] + [1] * (x_0.dim() - 1))
-        # [B, ...]
-        return t.cos().to(x_0) * x_0 + t.sin().to(x_0) * prior * self.scheduler.sigma_d
+        steps = steps or self.DEFAULT_STEPS
+        dtype, device = prior.dtype, prior.device
+        # e.g., default atan(80 / 0.5) = 1.5645
+        t_max = np.atan(sigma_max / sigma_d).item()
+        # prescaling
+        if _prescale_prior:
+            prior = prior * sigma_d
+        # single-step sampler
+        batch_size, *_ = prior.shape
+        if isinstance(steps, int) and steps <= 1:
+            t = torch.full((batch_size,), t_max, dtype=dtype, device=device)
+            x_0 = self.predict(prior, t)
+            return x_0, [x_0]
+        # proposed steps
+        if steps == 2:
+            steps = [t_max, 1.1]
+        elif isinstance(steps, int):
+            # uniform timesteps for otherwise
+            steps = np.linspace(t_max, 0.0, steps + 1)[:-1].tolist()
+        assert isinstance(steps, list)
+        # multi-step sampler
+        x_t, x_ts = prior, []
+        rdim = [batch_size] + [1 for _ in range(x_t.dim() - 1)]
+        if verbose is None:
+            verbose = lambda x: x
+        for i in verbose(range(len(steps))):
+            # [B]
+            t = torch.full((batch_size,), steps[i], dtype=dtype, device=device)
+            # [B, ...]
+            x_0 = self.predict(x_t, t)
+            if i < len(steps) - 1:
+                t_next = torch.full(rdim, steps[i + 1], dtype=dtype, device=device)
+                x_t = t_next.cos() * x_0 + t_next.sin() * prior
+            else:
+                # last inference
+                x_t = x_0
+            x_ts.append(x_t)
+        return x_t, x_ts
 
 
 class TrigFlow(ScaledContinuousCM):
@@ -304,7 +322,7 @@ class TrigFlow(ScaledContinuousCM):
             }
         return loss.mean()
 
-    def sample(
+    def sample(  # pyright: ignore
         self,
         prior: torch.Tensor,
         steps: int | None = None,
