@@ -61,7 +61,7 @@ def visualize_2d(
 
             plt.close()
             plt.figure()
-            plt.hist2d(*x_t[~x_t.isnan().any(dim=1)].T, bins=(100, 100), density=True)
+            plt.hist2d(*x_t.T, bins=(100, 100), density=True)
             if _save_fig:
                 plt.savefig(_save_fig / f"{name}-{step}-hist.png")
 
