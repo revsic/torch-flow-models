@@ -18,7 +18,9 @@ class RectifiedFlow(nn.Module, ODEModel, SamplingSupports):
         self.velocity_estim = module
         self.solver = VanillaEulerSolver()
 
-    def forward(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Estimate the causalized velocity from the given x_t; t.
         Args:
             x_t: [FloatLike; [B, ...]] the given noised sample, `x_t`.
@@ -26,7 +28,10 @@ class RectifiedFlow(nn.Module, ODEModel, SamplingSupports):
         Returns:
             estimated velocity from the given sample `x_t`.
         """
-        return self.velocity_estim(x_t, t)
+        kwargs = {}
+        if label is not None:
+            kwargs["label"] = label
+        return self.velocity_estim(x_t, t, **kwargs)
 
     def velocity(
         self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
@@ -38,7 +43,7 @@ class RectifiedFlow(nn.Module, ODEModel, SamplingSupports):
         Returns:
             [FloatLike; [B, ...]], the estimated velocity.
         """
-        return self.forward(x_t, t)
+        return self.forward(x_t, t, label=label)
 
     def loss(
         self,
@@ -71,7 +76,7 @@ class RectifiedFlow(nn.Module, ODEModel, SamplingSupports):
         # [B, ...]
         x_t = t * sample + (1 - t) * prior
         # [B, ...]
-        estim = self.forward(x_t, backup)
+        estim = self.forward(x_t, backup, label=label)
         return ((sample - prior) - estim).square().mean()
 
     def sample(
