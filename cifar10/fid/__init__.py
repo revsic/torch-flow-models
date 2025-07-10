@@ -85,6 +85,7 @@ def compute_fid_with_model(
     sampling_batch_size: int = 1,
     inception_batch_size: int = 1,
     shape: list[int] = [3, 32, 32],
+    n_classes: int | None = None,
     device: torch.device | str = "cuda:0",
     dtype: torch.dtype = torch.float32,
     inception: Path = DEFAULT_INCEPTION_PATH,
@@ -104,6 +105,13 @@ def compute_fid_with_model(
             generator = torch.Generator(device).manual_seed(0)
             for _ in range(num_samples):
                 if not images:
+                    labels = None
+                    if n_classes:
+                        labels = (
+                            torch.arange(n_classes, device=device) + _id
+                        ) % n_classes
+                        labels = labels.repeat(-(-sampling_batch_size // n_classes))
+                        labels = labels[:sampling_batch_size]
                     sampled, _ = sampler.sample(
                         torch.randn(
                             sampling_batch_size,
@@ -112,6 +120,7 @@ def compute_fid_with_model(
                             device=device,
                             dtype=dtype,
                         ),
+                        label=labels,
                         steps=steps,
                         verbose=lambda x: tqdm(x, leave=False),
                     )

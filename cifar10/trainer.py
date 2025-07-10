@@ -1,6 +1,9 @@
+from dataclasses import dataclass, field
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Callable, Protocol
 
+import git
 import numpy as np
 import torch
 import torch.nn as nn
@@ -45,29 +48,78 @@ class _LossDDPWrapper(nn.Module):
         return self.model.loss(*args, **kwargs)
 
 
+def _revision() -> str | None:
+    try:
+        repo = git.Repo(search_parent_directories=True)
+        branch = repo.active_branch.name
+        hexsha = repo.head.object.hexsha
+        return f"{branch}:{hexsha}"
+    except Exception as e:
+        print(f"[*] FAILED TO RETRIEVE REVISION: {e}")
+        return None
+
+
+def _stamp() -> str:
+    KST = timezone(timedelta(hours=9))
+    return datetime.now(KST).strftime("%Y.%m.%dKST%H:%M:%S")
+
+
+@dataclass
+class TrainConfig:
+    n_gpus: int
+    n_grad_accum: int
+    mixed_precision: str = "no"
+
+    batch_size: int = 512
+    n_classes: int | None = None
+
+    lr: float = 0.001
+    beta1: float = 0.9
+    beta2: float = 0.999
+    eps: float = 1e-8
+    weight_decay: float = 0.0
+    clip_grad_norm: float | None = None
+    nan_to_num: float | None = None
+
+    shuffle: bool = True
+    num_workers: int = 0
+    pin_memory: bool = True
+    dataset_path: str = "./cifar-10-batches-py/.."
+
+    workspace: str = "./workspace"
+
+    total: int = 400000
+
+    start_step: int = 0
+    load_ckpt: str | None = None
+    load_ema_ckpt: str | None = None
+
+    half_life_ema: int | None = None
+
+    label_dropout: float = 0.0
+    uncond_label: int | None = None
+
+    num_samples: int = 10
+    eval_interval: int = 20
+    fid_steps: int | None = None
+
+    revision: str | None = field(default_factory=_revision)
+    stamp: str = field(default_factory=_stamp)
+
+
 class Cifar10Trainer:
     def __init__(
         self,
         model: ScoreModel | ODEModel,
-        batch_size: int = 512,
-        lr: float = 0.001,
-        betas: tuple[float, float] = (0.9, 0.999),
-        eps: float = 1e-8,
-        weight_decay: float = 0.0,
-        shuffle: bool = True,
-        num_workers: int = 0,
-        pin_memory: bool = True,
-        dataset_path: Path = Path("./cifar-10-batches-py/.."),
-        workspace: Path = Path("./workspace"),
+        config: TrainConfig,
         _logger: Loggable = DefaultLogger(),
     ):
         assert isinstance(model, nn.Module)
-        assert isinstance(model, SamplingSupports)
         self.model = model
-        self.batch_size = batch_size
-        self.workspace = workspace
+        self.config = config
+
         self.trainset = torchvision.datasets.CIFAR10(
-            dataset_path,
+            config.dataset_path,
             train=True,
             transform=transforms.Compose(
                 [
@@ -77,64 +129,53 @@ class Cifar10Trainer:
             ),
         )
         self.testset = torchvision.datasets.CIFAR10(
-            dataset_path,
+            config.dataset_path,
             train=False,
             transform=transforms.ToTensor(),
         )
 
         self.train_loader = torch.utils.data.DataLoader(
             self.trainset,
-            batch_size=batch_size,
-            shuffle=shuffle,
-            num_workers=num_workers,
-            pin_memory=pin_memory,
+            batch_size=config.batch_size // config.n_gpus // config.n_grad_accum,
+            shuffle=config.shuffle,
+            num_workers=config.num_workers,
+            pin_memory=config.pin_memory,
         )
         self.test_loader = torch.utils.data.DataLoader(
             self.testset,
-            batch_size=batch_size,
-            num_workers=num_workers,
-            pin_memory=pin_memory,
+            batch_size=config.batch_size // config.n_gpus // config.n_grad_accum,
+            num_workers=config.num_workers,
+            pin_memory=config.pin_memory,
         )
 
         self.optim = torch.optim.Adam(
             self.model.parameters(),
-            lr=lr,
-            betas=betas,
-            eps=eps,
-            weight_decay=weight_decay,
+            lr=config.lr,
+            betas=(config.beta1, config.beta2),
+            eps=config.eps,
+            weight_decay=config.weight_decay,
         )
 
         self.scheduler: torch.optim.lr_scheduler.LRScheduler | None = None
 
-        workspace.mkdir(parents=True, exist_ok=True)
-        self.train_log = SummaryWriter(workspace / "logs" / "train")
-        self.test_log = SummaryWriter(workspace / "logs" / "test")
+        self.workspace = Path(config.workspace)
+        self.workspace.mkdir(parents=True, exist_ok=True)
+        self.train_log = SummaryWriter(self.workspace / "logs" / "train")
+        self.test_log = SummaryWriter(self.workspace / "logs" / "test")
         self._logger = _logger
 
     def train(
         self,
-        total: int = 400000,
-        mixed_precision: str = "no",  # "fp16"
-        gradient_accumulation_steps: int = 1,
-        num_samples: int = 10,
-        load_ckpt: Path | None = None,
-        half_life_ema: int | None = None,
-        clip_grad_norm: float | None = None,
-        _eval_interval: int = 20,
-        _load_ema_ckpt: Path | None = None,
-        _start_step: int = 0,
-        _fid_steps: int | None = None,
-        _nan_to_num: float | None = None,
         _preproc: Callable[[torch.Tensor], torch.Tensor] | None = None,
         _postproc: Callable[[torch.Tensor], torch.Tensor] | None = None,
     ):
         # validity check
-        assert _eval_interval > 0
+        assert self.config.eval_interval > 0
 
         self.model.train()
         accelerator = Accelerator(
-            mixed_precision=mixed_precision,
-            gradient_accumulation_steps=gradient_accumulation_steps,
+            mixed_precision=self.config.mixed_precision,
+            gradient_accumulation_steps=self.config.n_grad_accum,
             log_with="tensorboard",
             project_dir=self.workspace / "logs",
         )
@@ -151,34 +192,27 @@ class Cifar10Trainer:
         if self.scheduler is not None:
             scheduler = accelerator.prepare(self.scheduler)
 
-        if load_ckpt is not None:
+        if self.config.load_ckpt is not None:
             torch.serialization.add_safe_globals(
                 [
                     np._core.multiarray.scalar,  # pyright: ignore
                     np.dtypes.Float64DType,
                 ]
             )
-            accelerator.load_state(load_ckpt.absolute().as_posix())
+            accelerator.load_state(self.config.load_ckpt)
 
         ema, mu = None, 0.0
-        if half_life_ema:
+        if self.config.half_life_ema:
             ema = EMASupports(self.model)
-            # compute batch size again for multi-gpu settings
-            batch_size = (
-                self.batch_size
-                * accelerator.num_processes
-                * gradient_accumulation_steps
-            )
-            self._logger.log(f"Estimated batch-size: {batch_size}")
             # compute ema factor
-            steps = half_life_ema / batch_size
+            steps = self.config.half_life_ema / self.config.batch_size
             mu = 0.5 ** (1 / steps)
             self._logger.log(
                 f"Estimated mu: {mu:.4f}, and halved({mu ** int(steps):.2f}) in {int(steps)} steps"
             )
 
-            if _load_ema_ckpt:
-                load_model(ema.module, _load_ema_ckpt)
+            if self.config.load_ema_ckpt:
+                load_model(ema.module, self.config.load_ema_ckpt)
 
         # identity mapping
         if _preproc is None:
@@ -186,30 +220,46 @@ class Cifar10Trainer:
         if _postproc is None:
             _postproc = lambda x: x
 
-        step = _start_step
+        if self.config.n_classes and self.config.uncond_label is None:
+            self.config.uncond_label = self.config.n_classes + 1
+
+        def _preproc_label(labels: torch.Tensor) -> torch.Tensor | None:
+            if not self.config.n_classes:
+                return None
+            assert isinstance(self.config.uncond_label, int)
+            if self.config.label_dropout > 0.0:
+                mask = torch.rand(len(labels)) < self.config.label_dropout
+                labels[mask] = self.config.uncond_label
+            return labels
+
+        step = self.config.start_step
+        total = self.config.total * self.config.n_grad_accum
         epochs = -(-total // len(train_loader))
         epoch = 0
         for epoch in tqdm(range(epochs), disable=not _main_proc):
             with tqdm(train_loader, leave=False, disable=not _main_proc) as pbar:
                 for sample, labels in pbar:
                     with accelerator.accumulate(model):
-                        loss = model(_preproc(sample * 2 - 1))
+                        loss = model(
+                            _preproc(sample * 2 - 1),
+                            label=_preproc_label(labels),
+                        )
                         accelerator.backward(loss)
-                        if clip_grad_norm:
+                        if clip_grad_norm := self.config.clip_grad_norm:
                             accelerator.clip_grad_norm_(
                                 model.parameters(), clip_grad_norm
                             )
                         # early collection
                         loss = loss.item()
                         # for numerical stability
-                        if _nan_to_num is not None:
+                        if (ntn := self.config.nan_to_num) is not None:
                             for param in model.parameters():
                                 if param.grad is not None:
                                     torch.nan_to_num_(
                                         param.grad,
-                                        nan=_nan_to_num,
-                                        posinf=_nan_to_num,
-                                        neginf=_nan_to_num,
+                                        nan=ntn,
+                                        posinf=ntn,
+                                        neginf=ntn,
                                     )
 
                         if updated := accelerator.sync_gradients:
@@ -254,16 +304,18 @@ class Cifar10Trainer:
                                 "common/lr", self.optim.param_groups[0]["lr"], step
                             )
 
-            if _main_proc and epoch % max(1, epochs // _eval_interval) == 0:
+            if _main_proc and epoch % max(1, epochs // self.config.eval_interval) == 0:
                 with torch.no_grad():
                     model.eval()
                     _device, _dtype = (
                         accelerator.device,
                         next(self.model.parameters()).dtype,
                     )
-                    move = lambda tensor: tensor.to(_device, dtype=_dtype)
                     losses = [
-                        self.model.loss(_preproc(move(bunch) * 2 - 1)).item()
+                        self.model.loss(
+                            _preproc(bunch.to(_device, dtype=_dtype) * 2 - 1),
+                            label=_preproc_label(labels.to(_device)),
+                        ).item()
                         for bunch, labels in tqdm(self.test_loader, leave=False)
                     ]
                     self.test_log.add_scalar(f"loss", np.mean(losses), step)
@@ -271,13 +323,21 @@ class Cifar10Trainer:
                     # plot image
                     _sample, _ = next(iter(self.test_loader))
                     _, c, h, w = _sample.shape
+                    _labels = None
+                    if self.config.n_classes:
+                        _labels = torch.arange(self.config.n_classes, device=_device)
+                        _labels = _labels[:, None].repeat(
+                            1, -(-self.config.num_samples // self.config.n_classes)
+                        )
+                        _labels = _labels.view(-1)[: self.config.num_samples]
                     sample, trajectories = self.model.sample(
                         torch.randn(
-                            *(num_samples, c, h, w),
+                            *(self.config.num_samples, c, h, w),
                             generator=torch.Generator(_device).manual_seed(0),
                             dtype=_dtype,
                             device=_device,
                         ),
+                        _labels,
                         verbose=lambda x: tqdm(x, leave=False),
                     )
                     for i, img in enumerate(sample):
@@ -292,8 +352,9 @@ class Cifar10Trainer:
 
                     fid = compute_fid_with_model(
                         self.model,
-                        steps=_fid_steps,
+                        steps=self.config.fid_steps,
                         num_samples=10000,
+                        n_classes=self.config.n_classes,
                         inception_batch_size=self.test_loader.batch_size,  # pyright: ignore
                         sampling_batch_size=self.test_loader.batch_size,  # pyright: ignore
                         device=accelerator.device,

@@ -1,68 +1,91 @@
-from datetime import datetime, timezone, timedelta
+import json
+import traceback
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
-import torch
 from safetensors.torch import load_model
 
-from ddpmpp import DDPMpp
+from ddpmpp import DDPMpp, ModelConfig
 from flowmodels.sct import ScaledContinuousCM, ScaledContinuousCMScheduler
-from trainer import Cifar10Trainer, _LossDDPWrapper
+from trainer import Cifar10Trainer, TrainConfig, _LossDDPWrapper
+
+
+@dataclass
+class Config:
+    p_mean: float = -1.0
+    p_std: float = 1.4
+    tangent_warmup: int = 10000
+    approx_jvp: bool = True
+    dt: float = 0.005
+
+    model: ModelConfig = field(default_factory=ModelConfig)  # pyright: ignore
+    train: TrainConfig = field(default_factory=TrainConfig)  # pyright: ignore
 
 
 def reproduce_sct_cifar10():
-    # model definition
-    backbone = DDPMpp(
-        resolution=32,
-        in_channels=3,
-        nf=128,
-        ch_mult=[1, 2, 2, 2],
-        attn_resolutions=[16],
-        num_res_blocks=4,
-        init_scale=0.0,
-        skip_rescale=True,
-        dropout=0.20,
-        pe_scale=0.02,
-        use_shift_scale_norm=True,
-        use_double_norm=True,
+    config = Config(
+        model=ModelConfig(
+            resolution=32,
+            in_channels=3,
+            nf=128,
+            ch_mult=[1, 2, 2, 2],
+            attn_resolutions=[16],
+            num_res_blocks=4,
+            init_scale=0.0,
+            skip_rescale=True,
+            dropout=0.20,
+            pe_scale=0.02,
+            use_shift_scale_norm=True,
+            use_double_norm=True,
+            n_classes=10 + 1,  # +1 for uncond
+        ),
+        train=TrainConfig(
+            n_gpus=2,
+            n_grad_accum=1,
+            mixed_precision="no",
+            batch_size=768,
+            n_classes=10 + 1,
+            lr=0.0001,
+            beta1=0.9,
+            beta2=0.99,
+            eps=1e-8,
+            weight_decay=0.0,
+            clip_grad_norm=0.1,
+            nan_to_num=0.0,
+            total=400000,
+            half_life_ema=500000,
+            label_dropout=0.1,
+            uncond_label=10,
+            fid_steps=2,
+        ),
     )
+    # model definition
+    backbone = DDPMpp(config.model)
     model = ScaledContinuousCM(
         backbone,
         ScaledContinuousCMScheduler(),
-        tangent_warmup=10000,
+        tangent_warmup=config.tangent_warmup,
+        _approx_jvp=config.approx_jvp,
+        _dt=config.dt,
     )
     load_model(
         _LossDDPWrapper(model),
         "./test.workspace/trigflow-cifar10/2025.07.07KST13:27:38/ckpt/408/model.safetensors",
     )
 
-    n_gpus = 2
-    n_grad_accum = 1
     # timestamp
-    stamp = datetime.now(timezone(timedelta(hours=9))).strftime("%Y.%m.%dKST%H:%M:%S")
-    trainer = Cifar10Trainer(
-        model,
-        batch_size=768 // n_gpus // n_grad_accum,  # paper: 512
-        shuffle=True,
-        dataset_path=Path("./"),
-        workspace=Path(f"./test.workspace/sct-cifar10/{stamp}"),
-    )
-    trainer.optim = torch.optim.RAdam(  # pyright: ignore
-        trainer.model.parameters(),
-        lr=0.0001,
-        betas=(0.9, 0.99),
-        eps=1e-8,
-    )
-
-    trainer.train(
-        total=400000 * n_grad_accum,
-        mixed_precision="no",
-        gradient_accumulation_steps=n_grad_accum,
-        half_life_ema=500000,
-        clip_grad_norm=0.1,
-        _eval_interval=20 * n_grad_accum,
-        _fid_steps=2,
-        _nan_to_num=True,
-    )
+    workspace = Path(f"./test.workspace/sct-cifar10-cond/{config.train.stamp}")
+    workspace.mkdir(parents=True, exist_ok=True)
+    with open(workspace / "config.json", "w") as f:
+        json.dump(asdict(config), f, indent=2, ensure_ascii=False)
+    config.train.workspace = workspace.as_posix()
+    trainer = Cifar10Trainer(model, config.train)
+    try:
+        trainer.train()
+    except:
+        with open(workspace / "exception", "w") as f:
+            f.write(traceback.format_exc())
+        raise
 
 
 if __name__ == "__main__":
