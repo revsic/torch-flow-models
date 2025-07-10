@@ -86,17 +86,16 @@ class ScaledContinuousCM(
         """Estimate the `x_0` from the given `x_t`.
         Args:
             x_t: [FloatLike; [B, ...]] the given noised sample, `x_t`.
-            t: [FloatLike; [B]], the current timestep in range[0, 1].
+            t: [FloatLike; [B]], the current timestep in range[0, pi/2].
         Returns:
             [FloatLike; [B, ...]], estimated sample from the given `x_t`.
         """
         # shortcut
         (bsize,) = t.shape
         sigma_d = self.scheduler.sigma_d
-        backup = t.to(x_t.device) * np.pi * 0.5
         # [B, ...], scale t to range[0, pi/2]
-        t = backup.view([bsize] + [1] * (x_t.dim() - 1))
-        return t.cos() * x_t - t.sin() * sigma_d * self.F0(x_t / sigma_d, backup)
+        bt = t.view([bsize] + [1] * (x_t.dim() - 1))
+        return bt.cos() * x_t - bt.sin() * sigma_d * self.F0(x_t / sigma_d, t)
 
     def predict(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         """Predict the sample points `x_0` from the `x_t` w.r.t. the timestep `t`.
@@ -106,7 +105,7 @@ class ScaledContinuousCM(
         Returns:
             the predicted sample points `x_0`.
         """
-        return self.forward(x_t, t)
+        return self.forward(x_t, t * np.pi * 0.5)
 
     def velocity(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         """Estimate the velocity of the given samples, `x_t`.
@@ -129,7 +128,7 @@ class ScaledContinuousCM(
         """
         (bsize,) = t.shape
         # [B, ...]
-        x_0 = self.forward(x_t, t)
+        x_0 = self.predict(x_t, t)
         # [B, ...]
         var = self.scheduler.var(t).view([bsize] + [1] * (x_0.dim() - 1))
         # simplified:
@@ -236,7 +235,7 @@ class ScaledContinuousCM(
         steps = steps or self.DEFAULT_STEPS
         dtype, device = prior.dtype, prior.device
         # e.g., default atan(80 / 0.5) = 1.5645
-        t_max = np.atan(sigma_max / sigma_d).item()
+        t_max = np.arctan(sigma_max / sigma_d).item()
         # prescaling
         if _prescale_prior:
             prior = prior * sigma_d
@@ -244,7 +243,7 @@ class ScaledContinuousCM(
         batch_size, *_ = prior.shape
         if isinstance(steps, int) and steps <= 1:
             t = torch.full((batch_size,), t_max, dtype=dtype, device=device)
-            x_0 = self.predict(prior, t)
+            x_0 = self.forward(prior, t)
             return x_0, [x_0]
         # proposed steps
         if steps == 2:
@@ -262,7 +261,7 @@ class ScaledContinuousCM(
             # [B]
             t = torch.full((batch_size,), steps[i], dtype=dtype, device=device)
             # [B, ...]
-            x_0 = self.predict(x_t, t)
+            x_0 = self.forward(x_t, t)
             if i < len(steps) - 1:
                 t_next = torch.full(rdim, steps[i + 1], dtype=dtype, device=device)
                 x_t = t_next.cos() * x_0 + t_next.sin() * prior
