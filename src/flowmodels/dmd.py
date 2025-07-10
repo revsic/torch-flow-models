@@ -65,18 +65,18 @@ class DistributionMatchingDistillation(
         return self.forward(x_t, t)
 
     def noise(
-        self, x_0: torch.Tensor, t: torch.Tensor, prior: torch.Tensor | None = None
+        self, sample: torch.Tensor, t: torch.Tensor, prior: torch.Tensor | None = None
     ) -> torch.Tensor:
         """Noise the given sample `x_0` to the `x_t` w.r.t. the timestep `t` and the `prior`.
         Args:
-            x_0: [FloatLike; [B, ...]], the given samples, `x_0`.
+            sample: [FloatLike; [B, ...]], the given samples, `x_0`.
             t: [FloatLike; [B]], the target timesteps in range[0, 1].
             prior: [FloatLike; [B, ...]], the samples from the prior distribution.
         Returns:
             noised sample, `x_t`.
         """
         assert self._noiser is not None
-        return self._noiser(x_0, t, prior)
+        return self._noiser(sample, t, prior)
 
     def sample(
         self,

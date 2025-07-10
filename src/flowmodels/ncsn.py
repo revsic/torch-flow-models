@@ -123,29 +123,29 @@ class NCSN(nn.Module, ScoreModel, ForwardProcessSupports, SamplingSupports):
 
     def noise(
         self,
-        x_0: torch.Tensor,
+        sample: torch.Tensor,
         t: torch.Tensor,
         prior: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Noise the given sample `x_0` to the `x_t` w.r.t. the timestep `t` and the noise `eps`.
         Args:
-            x_0: [FloatLike; [B, ...]], the given sample, `x_0`.
+            sample: [FloatLike; [B, ...]], the given sample, `x_0`.
             t: [torch.long; [B]], the target timestep in range[1, T].
             prior: [FloatLike; [B, ...]], the sample from the prior distribution.
         Returns:
             noised sample, `x_t`.
         """
         if (t <= 0).all():
-            return x_0
+            return sample
         # assign default value
         if prior is None:
-            prior = torch.randn_like(x_0)
+            prior = torch.randn_like(sample)
         # [T], zero-based
-        sigma = self.scheduler.var().sqrt().to(x_0)
+        sigma = self.scheduler.var().sqrt().to(sample)
         # [T, ...]
-        sigma = sigma.view([self.scheduler.T] + [1] * (x_0.dim() - 1))
+        sigma = sigma.view([self.scheduler.T] + [1] * (sample.dim() - 1))
         # [B, ...], variance exploding
-        return x_0 + sigma[t - 1] * prior.to(x_0)
+        return sample + sigma[t - 1] * prior.to(sample)
 
 
 @runtime_checkable

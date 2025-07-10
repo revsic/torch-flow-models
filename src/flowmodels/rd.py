@@ -74,12 +74,12 @@ class RecitifedDiffusion(
 
     def noise(
         self,
-        x_0: torch.Tensor,
+        sample: torch.Tensor,
         t: torch.Tensor,
         prior: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Forward to `self.model.noise`."""
-        return self.model.noise(x_0, t, prior)
+        return self.model.noise(sample, t, prior)
 
     def predict(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
         """Predict the sample points `x_0` from the `x_t` w.r.t. the timestep `t`.

@@ -138,7 +138,7 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """Transfer the samples from the prior distribution to the trained distribution, using vanilla Euler method.
         Args:
-            prior: [FloatLike; [B, ...]], samples from the source distribution, `X_0`.
+            prior: [FloatLike; [B, ...]], samples from the prior distribution.
             steps: the number of the steps.
         """
         steps = steps or self.DEFAULT_STEPS

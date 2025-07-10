@@ -134,10 +134,10 @@ class EasyConsistencyTraining(
     ) -> torch.Tensor:
         """Compute the loss from the sample.
         Args:
-            sample: [FloatLike; [B, ...]], training data, `X_1`.
+            sample: [FloatLike; [B, ...]], training data.
             t: [FloatLike; [B]], target timesteps in range[0, 1],
                 sample from the proposal distribution if not provided.
-            prior: [FloatLike; [B, ...]], sample from the prior distribution, `X_0`,
+            prior: [FloatLike; [B, ...]], sample from the prior distribution,
                 sample from gaussian if not provided.
         Returns:
             [FloatLike; []], loss value.
@@ -181,13 +181,13 @@ class EasyConsistencyTraining(
 
     def noise(
         self,
-        x_0: torch.Tensor,
+        sample: torch.Tensor,
         t: torch.Tensor,
         prior: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Noise the given sample `x_0` to the `x_t` w.r.t. the timestep `t` and the `prior`.
         Args:
-            x_0: [FloatLike; [B, ...]], the given samples, `x_0`.
+            sample: [FloatLike; [B, ...]], the given samples, `x_0`.
             t: [torch.long; [B]], the target timesteps in range[0, 1].
             prior: [FloatLike; [B, ...]], the samples from the prior distribution.
         Returns:
@@ -195,5 +195,5 @@ class EasyConsistencyTraining(
         """
         (bsize,) = t.shape
         if prior is None:
-            prior = torch.randn_like(x_0)
-        return x_0 + t.view([bsize] + [1] * (x_0.dim() - 1)).to(prior) * prior
+            prior = torch.randn_like(sample)
+        return sample + t.view([bsize] + [1] * (sample.dim() - 1)).to(prior) * prior

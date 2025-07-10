@@ -112,13 +112,13 @@ class ConsistencyModel(
 
     def noise(
         self,
-        x_0: torch.Tensor,
+        sample: torch.Tensor,
         t: torch.Tensor,
         prior: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Noise the given sample `x_0` to the `x_t` w.r.t. the timestep `t` and the `prior`.
         Args:
-            x_0: [FloatLike; [B, ...]], the given samples, `x_0`.
+            sample: [FloatLike; [B, ...]], the given samples, `x_0`.
             t: [FloatLike; [B]], the target timesteps in range[0, 1].
             prior: [FloatLike; [B, ...]], the samples from the prior distribution.
         Returns:
@@ -126,16 +126,16 @@ class ConsistencyModel(
         """
         (batch_size,) = t.shape
         if prior is None:
-            prior = torch.randn_like(x_0)
+            prior = torch.randn_like(sample)
         # [T + 1]
         var = F.pad(self.scheduler.var(), [1, 0], "constant", self.scheduler.eps)
         # [B]
         t = (t * self.scheduler.T).long()
         # noising
-        v_t_view = var[t].view([batch_size] + [1] * (x_0.dim() - 1))
+        v_t_view = var[t].view([batch_size] + [1] * (sample.dim() - 1))
         if self.scheduler.vp:
-            return (1 - v_t_view).sqrt() * x_0 + v_t_view.sqrt() * prior
-        return x_0 + v_t_view.sqrt() * prior
+            return (1 - v_t_view).sqrt() * sample + v_t_view.sqrt() * prior
+        return sample + v_t_view.sqrt() * prior
 
     def sample(
         self,

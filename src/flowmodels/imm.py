@@ -208,10 +208,10 @@ class InductivMomentMatching(
     ) -> torch.Tensor:
         """Compute the loss from the sample.
         Args:
-            sample: [FloatLike; [B x 2, ...]], training data, `X_1`.
+            sample: [FloatLike; [B x 2, ...]], training data.
             t: [FloatLike; [B]], target timesteps in range[0, 1],
                 sample from the proposal distribution if not provided.
-            src: [FloatLike; [B x 2, ...]], sample from the source distribution, `X_0`,
+            src: [FloatLike; [B x 2, ...]], sample from the source distribution,
                 sample from gaussian if not provided.
         Returns:
             [FloatLike; []], loss value.
@@ -247,7 +247,7 @@ class InductivMomentMatching(
 
     def noise(
         self,
-        x_0: torch.Tensor,
+        sample: torch.Tensor,
         t: torch.Tensor,
         prior: torch.Tensor | None = None,
     ) -> torch.Tensor:
@@ -260,11 +260,11 @@ class InductivMomentMatching(
             noised sample, `x_t`.
         """
         (bsize,) = t.shape
-        rdim = [bsize] + [1] * (x_0.dim() - 1)
+        rdim = [bsize] + [1] * (sample.dim() - 1)
         a_t, s_t = self.scheduler.coeff_interp(t)
         if prior is None:
-            prior = torch.randn_like(x_0)
-        return a_t.view(rdim) * x_0 + s_t.view(rdim) * prior
+            prior = torch.randn_like(sample)
+        return a_t.view(rdim) * sample + s_t.view(rdim) * prior
 
     def sample(
         self,

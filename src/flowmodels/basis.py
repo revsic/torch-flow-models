@@ -89,13 +89,13 @@ class ForwardProcessSupports(Protocol):
 
     def noise(
         self,
-        x_0: torch.Tensor,
+        sample: torch.Tensor,
         t: torch.Tensor,
         prior: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """Noise the given sample `x_0` to the `x_t` w.r.t. the timestep `t` and the `prior`.
+        """Noise the given sample to the `x_t` w.r.t. the timestep `t` and the `prior`.
         Args:
-            x_0: [FloatLike; [B, ...]], the given samples, `x_0`.
+            sample: [FloatLike; [B, ...]], the given samples.
             t: [FloatLike; [B]], the target timesteps in range[0, 1].
             prior: [FloatLike; [B, ...]], the samples from the prior distribution.
         Returns:
@@ -108,12 +108,12 @@ class ForwardProcessSupports(Protocol):
 class PredictionSupports(Protocol):
 
     def predict(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
-        """Predict the sample points `x_0` from the `x_t` w.r.t. the timestep `t`.
+        """Predict the sample points from the `x_t` w.r.t. the timestep `t`.
         Args:
             x_t: [FloatLike; [B, ...]], the given points, `x_t`.
             t: [FloatLike; [B]], the target timesteps in range[0, 1].
         Returns:
-            the predicted sample points `x_0`.
+            the predicted sample points.
         """
         ...
 
@@ -139,7 +139,7 @@ class ScoreModel(ScoreSupports):
     ) -> torch.Tensor:
         """Compute the loss from the sample.
         Args:
-            sample: [FloatLike; [B, ...]], the training data, `x_0`.
+            sample: [FloatLike; [B, ...]], the training data.
             t: [FloatLike; [B]], the target timesteps in range[0, 1],
                 sample from uniform distribution if not provided.
             prior: [FloatLike; [B, ...]], the samples from the prior distribution,
@@ -185,10 +185,10 @@ class ODEModel(VelocitySupports):
     ) -> torch.Tensor:
         """Compute the loss from the sample.
         Args:
-            sample: [FloatLike; [B, ...]], the training data, `x_0`.
+            sample: [FloatLike; [B, ...]], the training data.
             t: [FloatLike; [B]], the target timesteps in range[0, 1],
                 sample from uniform distribution if not provided.
-            src: [FloatLike; [B, ...]], sample from the source distribution, `X_0`,
+            src: [FloatLike; [B, ...]], sample from the source distribution,
                 sample from gaussian if not provided.
         Returns:
             [FloatLike; []], loss value.

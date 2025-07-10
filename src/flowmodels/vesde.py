@@ -113,7 +113,7 @@ class VESDE(nn.Module, ScoreModel, ForwardProcessSupports, SamplingSupports):
 
     def noise(
         self,
-        x_0: torch.Tensor,
+        sample: torch.Tensor,
         t: torch.Tensor,
         prior: torch.Tensor | None = None,
     ) -> torch.Tensor:
@@ -126,18 +126,18 @@ class VESDE(nn.Module, ScoreModel, ForwardProcessSupports, SamplingSupports):
             noised sample, `x_t`.
         """
         if (t <= 0).all():
-            return x_0
+            return sample
         # assign default value
         if prior is None:
-            prior = torch.randn_like(x_0)
+            prior = torch.randn_like(sample)
         # B
-        bsize, *_ = x_0.shape
+        bsize, *_ = sample.shape
         # [B], zero-based
-        sigma = self.scheduler.var(t).sqrt().to(x_0)
+        sigma = self.scheduler.var(t).sqrt().to(sample)
         # [B, ...]
-        sigma = sigma.view([bsize] + [1] * (x_0.dim() - 1))
+        sigma = sigma.view([bsize] + [1] * (sample.dim() - 1))
         # [B, ...], variance exploding
-        return x_0 + sigma * prior.to(x_0)
+        return sample + sigma * prior.to(sample)
 
 
 class VESDEAncestralSampler(Sampler):

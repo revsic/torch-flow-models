@@ -124,36 +124,36 @@ class DDPM(nn.Module, ScoreModel, ForwardProcessSupports, SamplingSupports):
 
     def noise(
         self,
-        x_0: torch.Tensor,
+        sample: torch.Tensor,
         t: torch.Tensor,
         prior: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Noise the given sample `x_0` to the `x_t` w.r.t. the timestep `t` and the noise `eps`.
         Args:
-            x_0: [FloatLike; [B, ...]], the given samples, `x_0`.
+            sample: [FloatLike; [B, ...]], the given samples, `x_0`.
             t: [torch.long; [B]], the target timesteps in range[1, T].
             prior: [FloatLike; [B, ...]], the samples from the prior distribution.
         Returns:
             noised sample, `x_t`.
         """
         if (t <= 0).all():
-            return x_0
+            return sample
         # assign default value
         if prior is None:
-            prior = torch.randn_like(x_0)
+            prior = torch.randn_like(sample)
         # settings
-        dtype, device = x_0.dtype, x_0.device
+        dtype, device = sample.dtype, sample.device
         # [T], zero-based
         alpha_bar = 1 - self.scheduler.var().to(device, torch.float32)
         # [T, ...]
-        alpha_bar = alpha_bar.view([self.scheduler.T] + [1] * (x_0.dim() - 1))
+        alpha_bar = alpha_bar.view([self.scheduler.T] + [1] * (sample.dim() - 1))
         # [B, ...], variance-preserving scheduler
         if self.scheduler.vp:
-            return alpha_bar[t - 1].sqrt().to(dtype) * x_0 + (
+            return alpha_bar[t - 1].sqrt().to(dtype) * sample + (
                 1 - alpha_bar[t - 1]
-            ).sqrt().to(dtype) * prior.to(x_0)
+            ).sqrt().to(dtype) * prior.to(sample)
         # variance-exploding scheduler
-        return x_0 + (1 - alpha_bar[t - 1]).sqrt().to(dtype) * prior.to(x_0)
+        return sample + (1 - alpha_bar[t - 1]).sqrt().to(dtype) * prior.to(sample)
 
 
 class DDPMSampler(Sampler):
