@@ -47,9 +47,10 @@ def calculate_inception_stats(
         # [C, C]
         sigma += features.T @ features
 
-    mu /= len(dataloader.dataset)
-    sigma -= mu.ger(mu) * len(dataloader.dataset)
-    sigma /= len(dataloader.dataset) - 1
+    dlen = len(dataloader.dataset)  # pyright: ignore
+    mu /= dlen
+    sigma -= mu.ger(mu) * dlen
+    sigma /= dlen - 1
     return mu.cpu().numpy(), sigma.cpu().numpy()
 
 

@@ -8,11 +8,11 @@ import torchvision
 import torchvision.transforms as transforms
 from accelerate import Accelerator
 from safetensors.torch import load_model, save_model
-from torch.utils.tensorboard import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter  # pyright: ignore
 from tqdm import tqdm
 
 from fid import compute_fid_with_model
-from flowmodels.basis import ScoreModel, ODEModel
+from flowmodels.basis import SamplingSupports, ScoreModel, ODEModel
 from flowmodels.utils import EMASupports
 
 
@@ -23,7 +23,7 @@ class Loggable(Protocol):
 class DefaultLogger(Loggable):
     def __init__(self):
         try:
-            from loguru import logger
+            from loguru import logger  # pyright: ignore
         except ImportError:
             logger = None
         self.logger = logger
@@ -61,6 +61,8 @@ class Cifar10Trainer:
         workspace: Path = Path("./workspace"),
         _logger: Loggable = DefaultLogger(),
     ):
+        assert isinstance(model, nn.Module)
+        assert isinstance(model, SamplingSupports)
         self.model = model
         self.batch_size = batch_size
         self.workspace = workspace
@@ -152,7 +154,7 @@ class Cifar10Trainer:
         if load_ckpt is not None:
             torch.serialization.add_safe_globals(
                 [
-                    np._core.multiarray.scalar,
+                    np._core.multiarray.scalar,  # pyright: ignore
                     np.dtypes.Float64DType,
                 ]
             )
@@ -186,6 +188,7 @@ class Cifar10Trainer:
 
         step = _start_step
         epochs = -(-total // len(train_loader))
+        epoch = 0
         for epoch in tqdm(range(epochs), disable=not _main_proc):
             with tqdm(train_loader, leave=False, disable=not _main_proc) as pbar:
                 for sample, labels in pbar:
@@ -202,7 +205,12 @@ class Cifar10Trainer:
                         if _nan_to_num is not None:
                             for param in model.parameters():
                                 if param.grad is not None:
-                                    torch.nan_to_num_(param.grad, nan=_nan_to_num, posinf=_nan_to_num, neginf=_nan_to_num)
+                                    torch.nan_to_num_(
+                                        param.grad,
+                                        nan=_nan_to_num,
+                                        posinf=_nan_to_num,
+                                        neginf=_nan_to_num,
+                                    )
 
                         if updated := accelerator.sync_gradients:
                             step += 1
@@ -232,7 +240,9 @@ class Cifar10Trainer:
 
                         with torch.no_grad():
                             self.train_log.add_scalar(
-                                "common/grad-norm", np.mean(_grad_norms), step
+                                "common/grad-norm",
+                                np.mean(_grad_norms),  # pyright: ignore
+                                step,
                             )
                             param_norm = np.mean(
                                 [torch.norm(p).item() for p in model.parameters()]
@@ -247,7 +257,10 @@ class Cifar10Trainer:
             if _main_proc and epoch % max(1, epochs // _eval_interval) == 0:
                 with torch.no_grad():
                     model.eval()
-                    _device, _dtype = accelerator.device, next(self.model.parameters()).dtype
+                    _device, _dtype = (
+                        accelerator.device,
+                        next(self.model.parameters()).dtype,
+                    )
                     move = lambda tensor: tensor.to(_device, dtype=_dtype)
                     losses = [
                         self.model.loss(_preproc(move(bunch) * 2 - 1)).item()
@@ -281,8 +294,8 @@ class Cifar10Trainer:
                         self.model,
                         steps=_fid_steps,
                         num_samples=10000,
-                        inception_batch_size=self.test_loader.batch_size,
-                        sampling_batch_size=self.test_loader.batch_size,
+                        inception_batch_size=self.test_loader.batch_size,  # pyright: ignore
+                        sampling_batch_size=self.test_loader.batch_size,  # pyright: ignore
                         device=accelerator.device,
                         scaler=lambda x: (
                             ((_postproc(x) + 1) * 0.5).clamp(0.0, 1.0) * 255
@@ -291,15 +304,12 @@ class Cifar10Trainer:
                     model.train()
                     self.test_log.add_scalar("metric/fid10k", fid, step)
 
-                accelerator.save_state(self.workspace / "ckpt" / str(epoch))
+                _path = self.workspace / "ckpt" / str(epoch)
+                accelerator.save_state(_path.as_posix())
                 if ema:
-                    save_model(
-                        ema.module,
-                        self.workspace / "ckpt" / str(epoch) / "_ema.safetensors",
-                    )
+                    save_model(ema.module, (_path / "_ema.safetensors").as_posix())
 
-        accelerator.save_state(self.workspace / "ckpt" / str(epoch))
+        _path = self.workspace / "ckpt" / str(epoch)
+        accelerator.save_state(_path.as_posix())
         if ema:
-            save_model(
-                ema.module, self.workspace / "ckpt" / str(epoch) / "_ema.safetensors"
-            )
+            save_model(ema.module, (_path / "_ema.safetensors").as_posix())

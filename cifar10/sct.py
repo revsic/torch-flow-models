@@ -46,7 +46,7 @@ def reproduce_sct_cifar10():
         dataset_path=Path("./"),
         workspace=Path(f"./test.workspace/sct-cifar10/{stamp}"),
     )
-    trainer.optim = torch.optim.RAdam(
+    trainer.optim = torch.optim.RAdam(  # pyright: ignore
         trainer.model.parameters(),
         lr=0.0001,
         betas=(0.9, 0.99),

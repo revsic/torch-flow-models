@@ -3,7 +3,7 @@ import traceback
 from dataclasses import dataclass, field
 from datetime import timedelta, timezone, datetime
 from pathlib import Path
-from typing import Any, Callable, Type
+from typing import Any, Callable, Type, TypeVar
 
 import json
 import matplotlib.pyplot as plt
@@ -127,7 +127,10 @@ def main(
         json.dump(results, f, indent=2, ensure_ascii=False)
 
 
-def flowmap_testbed[T: Testbed](GivenTestbed: Type[T]):
+T = TypeVar("T", bound=Testbed)
+
+
+def flowmap_testbed(GivenTestbed: Type[T]):
     class FlowMapTestbed(GivenTestbed):
         class FlowMapWrapper(nn.Module):
             def __init__(self, backbone: nn.Module):
@@ -205,7 +208,7 @@ def register_factory(
     return wrapper
 
 
-def inherit_testbed[T: Testbed](GivenTestbed: Type[T]):
+def inherit_testbed(GivenTestbed: Type[T]):
     return {name: factory(GivenTestbed) for name, factory in FACTORIES.items()}
 
 
@@ -213,7 +216,7 @@ FACTORY_TESTBED_CAF_ARGS = dict(channels=1)
 
 
 @register_factory(name="caf", kwargs=FACTORY_TESTBED_CAF_ARGS)
-def factory_testbed_caf[T: Testbed](GivenTestbed: Type[T]):
+def factory_testbed_caf(GivenTestbed: Type[T]):
     class TestbedCAF(GivenTestbed):
         def __init__(self, channels: int):
             super().__init__(ConstantAccelerationFlow(channels, self.default_network()))
@@ -272,7 +275,7 @@ def factory_testbed_caf[T: Testbed](GivenTestbed: Type[T]):
 
 
 @register_factory(name="sct", steps=[4, 2, 1])
-def factory_testbed_sct[T: Testbed](GivenTestbed: Type[T]):
+def factory_testbed_sct(GivenTestbed: Type[T]):
     class TestbedSCT(GivenTestbed):
         def __init__(self):
             super().__init__(
@@ -297,7 +300,7 @@ def factory_testbed_sct[T: Testbed](GivenTestbed: Type[T]):
     return TestbedSCT
 
 
-def _distill_from_rectified_flow[T: Testbed](
+def _distill_from_rectified_flow(
     TestableModel: Type[Testable],
     GivenTestbed: Type[T],
     _velocity_network: str = "F0",
@@ -340,7 +343,7 @@ def _distill_from_rectified_flow[T: Testbed](
 
 
 @register_factory(name="ayf-emd")
-def factory_testbed_ayf_emd[T: Testbed](GivenTestbed: Type[T]):
+def factory_testbed_ayf_emd(GivenTestbed: Type[T]):
     return _distill_from_rectified_flow(
         AlignYourFlow,
         flowmap_testbed(GivenTestbed),
@@ -352,7 +355,7 @@ def factory_testbed_ayf_emd[T: Testbed](GivenTestbed: Type[T]):
 
 
 @register_factory(name="fmm-emd")
-def factory_testbed_fmm_emd[T: Testbed](GivenTestbed: Type[T]):
+def factory_testbed_fmm_emd(GivenTestbed: Type[T]):
     return _distill_from_rectified_flow(
         FlowMapMatching,
         flowmap_testbed(GivenTestbed),
@@ -365,7 +368,7 @@ def factory_testbed_fmm_emd[T: Testbed](GivenTestbed: Type[T]):
 
 
 @register_factory(name="fmm-lmd")
-def factory_testbed_fmm_lmd[T: Testbed](GivenTestbed: Type[T]):
+def factory_testbed_fmm_lmd(GivenTestbed: Type[T]):
     return _distill_from_rectified_flow(
         FlowMapMatching,
         flowmap_testbed(GivenTestbed),

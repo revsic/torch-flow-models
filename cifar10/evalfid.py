@@ -24,7 +24,6 @@ def main():
     parser.add_argument("--dump", default="/data0/images")
     args = parser.parse_args()
 
-
     backbone = DDPMpp(
         resolution=32,
         in_channels=3,
@@ -45,6 +44,8 @@ def main():
             model = ScaledContinuousCM(backbone, ScaledContinuousCMScheduler())
         case "trigflow":
             model = TrigFlow(backbone, ScaledContinuousCMScheduler())
+        case _:
+            assert False, "invalid framework"
 
     if not (ckpt := Path(args.ckpt)).exists():
         print("[*] CHECKPOINT DOES NOT EXIST: ", args.ckpt)
@@ -59,7 +60,10 @@ def main():
         dump = Path(args.dump) / f"{uuid4().hex}"
     else:
         (parent, date, steps, head), *_ = found
-        dump = Path(args.dump) / f"{Path(parent).stem}.{date}.ckpt{steps}.steps{args.steps}.{head}"
+        dump = (
+            Path(args.dump)
+            / f"{Path(parent).stem}.{date}.ckpt{steps}.steps{args.steps}.{head}"
+        )
 
     _enable_loss_ddp_wrapper = False
     with safetensors.safe_open(args.ckpt, framework="pt") as f:
@@ -100,7 +104,9 @@ def main():
             inception_batch_size=1024,
             device="cuda:0",
             cache=args.ref,
-            scaler=lambda x: ((x - x.amin()) / (x.amax() - x.amin()) * 255).to(torch.uint8),
+            scaler=lambda x: ((x - x.amin()) / (x.amax() - x.amin()) * 255).to(
+                torch.uint8
+            ),
             _save_images=dump,
         )
 

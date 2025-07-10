@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Callable, Type
+from typing import Callable, Generic, Type, TypeVar
 
 import torch
 import torch.nn as nn
@@ -77,10 +77,12 @@ class BaseTestbed:
         return losses
 
 
-type Testable = nn.Module
+Testable = nn.Module
+
+T = TypeVar("T", bound=Testable)
 
 
-class Testbed[T: Testable](BaseTestbed):
+class Testbed(BaseTestbed, Generic[T]):
     @classmethod
     def default_network(cls) -> nn.Module:
         raise NotImplementedError("Testbed.default_network is not implemented")
