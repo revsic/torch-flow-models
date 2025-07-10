@@ -1,5 +1,6 @@
 # type: ignore
 import math
+from dataclasses import dataclass, field
 
 import numpy as np
 import torch
@@ -239,42 +240,49 @@ class ResnetBlockBigGANpp(nn.Module):
         return x + h
 
 
-class DDPMpp(nn.Module):
-    def __init__(
-        self,
-        resolution: int,
-        in_channels: int,
-        nf: int = 128,
-        ch_mult: list[int] = [1, 2, 2, 2],
-        attn_resolutions: list[int] = [16],
-        num_res_blocks: int = 4,
-        init_scale: float = 0.0,
-        skip_rescale: bool = True,
-        dropout: float = 0.1,
-        pe_scale: float = 1.0,
-        use_shift_scale_norm: bool = False,
-        use_double_norm: bool = False,
-        _force_norm_32bit: bool = False,
-    ):
-        super().__init__()
-        self.nf = nf
-        self.pe_scale = pe_scale
+@dataclass
+class ModelConfig:
+    resolution: int
+    in_channels: int
+    nf: int = 128
+    ch_mult: list[int] = field(default_factory=lambda: [1, 2, 2, 2])
+    attn_resolutions: list[int] = field(default_factory=lambda: [16])
+    num_res_blocks: int = 4
+    init_scale: float = 0.0
+    skip_rescale: bool = True
+    dropout: float = 0.1
+    pe_scale: float = 1.0
+    use_shift_scale_norm: bool = False
+    use_double_norm: bool = False
+    n_classes: int | None = None
+    _force_norm_32bit: bool = False
 
-        _temb_channels = nf * 4
+
+class DDPMpp(nn.Module):
+    def __init__(self, config: ModelConfig):
+        super().__init__()
+        self.nf = config.nf
+        self.pe_scale = config.pe_scale
+
+        self.proj_label = None
+        if config.n_classes:
+            self.proj_label = nn.Embedding(config.n_classes, config.nf)
+
+        _temb_channels = config.nf * 4
         self.proj_temb = nn.Sequential(
-            nn.Linear(nf, _temb_channels),
+            nn.Linear(config.nf, _temb_channels),
             nn.SiLU(),
             nn.Linear(_temb_channels, _temb_channels),
         )
         with torch.no_grad():
-            self.proj_temb[0].weight.copy_(default_init(_temb_channels, nf))
+            self.proj_temb[0].weight.copy_(default_init(_temb_channels, config.nf))
             self.proj_temb[0].bias.zero_()
             self.proj_temb[2].weight.copy_(default_init(_temb_channels, _temb_channels))
             self.proj_temb[2].bias.zero_()
 
-        self.proj_in = Conv3x3(in_channels, nf)
+        self.proj_in = Conv3x3(config.in_channels, config.nf)
 
-        _channels = [nf * mult for mult in ch_mult]
+        _channels = [config.nf * mult for mult in config.ch_mult]
         _fst, *_, _bottleneck = _channels
         self.down_blocks = nn.ModuleList(
             [
@@ -284,36 +292,36 @@ class DDPMpp(nn.Module):
                             in_channels=channels if i > 0 else prev,
                             out_channels=channels,
                             emb_channels=_temb_channels,
-                            dropout=dropout,
-                            init_scale=init_scale,
-                            skip_rescale=skip_rescale,
-                            use_shift_scale_norm=use_shift_scale_norm,
-                            use_double_norm=use_double_norm,
-                            _force_norm_32bit=_force_norm_32bit,
+                            dropout=config.dropout,
+                            init_scale=config.init_scale,
+                            skip_rescale=config.skip_rescale,
+                            use_shift_scale_norm=config.use_shift_scale_norm,
+                            use_double_norm=config.use_double_norm,
+                            _force_norm_32bit=config._force_norm_32bit,
                         )
-                        for i in range(num_res_blocks)
+                        for i in range(config.num_res_blocks)
                     ]
                 )
-                for prev, channels in zip([nf] + _channels, _channels)
+                for prev, channels in zip([config.nf] + _channels, _channels)
             ]
         )
 
-        _resolutions = [resolution * (2**-i) for i in range(len(_channels))]
+        _resolutions = [config.resolution * (2**-i) for i in range(len(_channels))]
         self.down_attns = nn.ModuleDict(
             {
                 str(i): nn.ModuleList(
                     [
                         AttnBlockpp(
                             channels,
-                            skip_rescale,
-                            init_scale,
-                            _force_norm_32bit=_force_norm_32bit,
+                            config.skip_rescale,
+                            config.init_scale,
+                            _force_norm_32bit=config._force_norm_32bit,
                         )
-                        for _ in range(num_res_blocks)
+                        for _ in range(config.num_res_blocks)
                     ]
                 )
                 for i, (res, channels) in enumerate(zip(_resolutions, _channels))
-                if res in attn_resolutions
+                if res in config.attn_resolutions
             }
         )
 
@@ -324,12 +332,12 @@ class DDPMpp(nn.Module):
                     out_channels=channels,
                     emb_channels=_temb_channels,
                     down=True,
-                    dropout=dropout,
-                    init_scale=init_scale,
-                    skip_rescale=skip_rescale,
-                    use_shift_scale_norm=use_shift_scale_norm,
-                    use_double_norm=use_double_norm,
-                    _force_norm_32bit=_force_norm_32bit,
+                    dropout=config.dropout,
+                    init_scale=config.init_scale,
+                    skip_rescale=config.skip_rescale,
+                    use_shift_scale_norm=config.use_shift_scale_norm,
+                    use_double_norm=config.use_double_norm,
+                    _force_norm_32bit=config._force_norm_32bit,
                 )
                 for channels in _channels[:-1]
             ]
@@ -341,18 +349,21 @@ class DDPMpp(nn.Module):
                     in_channels=_bottleneck,
                     out_channels=_bottleneck,
                     emb_channels=_temb_channels,
-                    dropout=dropout,
-                    init_scale=init_scale,
-                    skip_rescale=skip_rescale,
-                    use_shift_scale_norm=use_shift_scale_norm,
-                    use_double_norm=use_double_norm,
-                    _force_norm_32bit=_force_norm_32bit,
+                    dropout=config.dropout,
+                    init_scale=config.init_scale,
+                    skip_rescale=config.skip_rescale,
+                    use_shift_scale_norm=config.use_shift_scale_norm,
+                    use_double_norm=config.use_double_norm,
+                    _force_norm_32bit=config._force_norm_32bit,
                 )
                 for _ in range(2)
             ]
         )
         self.bottleneck_attn = AttnBlockpp(
-            _bottleneck, skip_rescale, init_scale, _force_norm_32bit=_force_norm_32bit
+            _bottleneck,
+            config.skip_rescale,
+            config.init_scale,
+            _force_norm_32bit=config._force_norm_32bit,
         )
 
         _backwards = _channels[::-1]
@@ -364,25 +375,25 @@ class DDPMpp(nn.Module):
                             in_channels=channels
                             + (
                                 channels
-                                if 0 < i < num_res_blocks
+                                if 0 < i < config.num_res_blocks
                                 else (prev if i == 0 else next_)
                             ),
                             out_channels=channels,
                             emb_channels=_temb_channels,
-                            dropout=dropout,
-                            init_scale=init_scale,
-                            skip_rescale=skip_rescale,
-                            use_shift_scale_norm=use_shift_scale_norm,
-                            use_double_norm=use_double_norm,
-                            _force_norm_32bit=_force_norm_32bit,
+                            dropout=config.dropout,
+                            init_scale=config.init_scale,
+                            skip_rescale=config.skip_rescale,
+                            use_shift_scale_norm=config.use_shift_scale_norm,
+                            use_double_norm=config.use_double_norm,
+                            _force_norm_32bit=config._force_norm_32bit,
                         )
-                        for i in range(num_res_blocks + 1)
+                        for i in range(config.num_res_blocks + 1)
                     ]
                 )
                 for prev, channels, next_ in zip(
                     [_bottleneck] + _backwards,
                     _backwards,
-                    _backwards[1:] + [nf],
+                    _backwards[1:] + [config.nf],
                 )
             ]
         )
@@ -392,12 +403,12 @@ class DDPMpp(nn.Module):
             {
                 str(i): AttnBlockpp(
                     channels,
-                    skip_rescale,
-                    init_scale,
-                    _force_norm_32bit=_force_norm_32bit,
+                    config.skip_rescale,
+                    config.init_scale,
+                    _force_norm_32bit=config._force_norm_32bit,
                 )
                 for i, (res, channels) in enumerate(zip(_resolutions, _backwards))
-                if res in attn_resolutions
+                if res in config.attn_resolutions
             }
         )
 
@@ -408,12 +419,12 @@ class DDPMpp(nn.Module):
                     out_channels=channels,
                     emb_channels=_temb_channels,
                     up=True,
-                    dropout=dropout,
-                    init_scale=init_scale,
-                    skip_rescale=skip_rescale,
-                    use_shift_scale_norm=use_shift_scale_norm,
-                    use_double_norm=use_double_norm,
-                    _force_norm_32bit=_force_norm_32bit,
+                    dropout=config.dropout,
+                    init_scale=config.init_scale,
+                    skip_rescale=config.skip_rescale,
+                    use_shift_scale_norm=config.use_shift_scale_norm,
+                    use_double_norm=config.use_double_norm,
+                    _force_norm_32bit=config._force_norm_32bit,
                 )
                 for channels in _backwards[:-1]
             ]
@@ -421,17 +432,28 @@ class DDPMpp(nn.Module):
 
         self.postproc = nn.Sequential(
             GroupNorm(
-                min(_fst // 4, 32), _fst, eps=1e-6, force_on_32bit=_force_norm_32bit
+                min(_fst // 4, 32),
+                _fst,
+                eps=1e-6,
+                force_on_32bit=config._force_norm_32bit,
             ),
             nn.SiLU(),
-            Conv3x3(_fst, in_channels, init_scale),
+            Conv3x3(_fst, config.in_channels, config.init_scale),
         )
 
         self._debug_purpose = {}
 
-    def forward(self, x: torch.Tensor, time_cond: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self,
+        x: torch.Tensor,
+        time_cond: torch.Tensor,
+        label: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        assert (label is None) == (self.proj_label is None)
         # [B, E]
         temb = get_timestep_embedding(time_cond.to(x), self.nf, scale=self.pe_scale)
+        if label is not None:
+            temb = temb + self.proj_label.forward(label)
         # [B, E x 4]
         temb = self.proj_temb(temb)
 
