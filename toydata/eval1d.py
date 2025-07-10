@@ -29,7 +29,9 @@ def visualize_1d(
     gt, prior = dataset
     with torch.no_grad():
         x_ts = [
-            x_t for step in steps for x_t, _ in (model.sample(prior, step, verbose),)
+            x_t
+            for step in steps
+            for x_t, _ in (model.sample(prior, None, step, verbose),)
         ]
     plt.figure()
     plt.hist(prior, bins=histspace, label="prior")  # pyright: ignore
@@ -51,7 +53,7 @@ def visualize_1d(
         x_trajs = [
             x_ts
             for step in steps
-            for _, x_ts in (model.sample(trajspace, step, verbose),)
+            for _, x_ts in (model.sample(trajspace, None, step, verbose),)
         ]
     plt.figure()
     colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
@@ -145,7 +147,9 @@ class TestGaussianMixture1D(Testbed):
         results = {}
         for step in steps:
             try:
-                r, _ = self.model.sample(prior, step, lambda x: tqdm(x, leave=False))
+                r, _ = self.model.sample(
+                    prior, None, step, lambda x: tqdm(x, leave=False)
+                )
                 results[step] = kde_stats(data.numpy(), r.numpy(), grid, dxdy)
             except:
                 results[step] = traceback.format_exc()

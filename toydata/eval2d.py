@@ -45,7 +45,7 @@ def visualize_2d(
     gt, prior = dataset
     with torch.no_grad():
         for step in steps:
-            x_t, x_ts = model.sample(prior, step, verbose)
+            x_t, x_ts = model.sample(prior, None, step, verbose)
             # remove NaN
             mask = ~x_t.isnan().any(dim=-1)
             x_t = x_t[mask]
