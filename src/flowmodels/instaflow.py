@@ -38,7 +38,7 @@ class InstaFlow(RectifiedFlow):
         )
         losses = super().reflow(
             optim=optim,
-            src=prior,
+            prior=prior,
             training_steps=training_steps,
             batch_size=batch_size,
             sample=sample,
@@ -49,7 +49,7 @@ class InstaFlow(RectifiedFlow):
     def distillation(
         self,
         optim: torch.optim.Optimizer,
-        src: torch.Tensor,
+        prior: torch.Tensor,
         training_steps: int,
         batch_size: int,
         sample: torch.Tensor | int = 1000,
@@ -59,16 +59,16 @@ class InstaFlow(RectifiedFlow):
         """Distillation for single-step generation.
         Args:
             optim: optimizer constructed with `self.parameters()`.
-            src: [FloatLike; [D, ...]], samples from the source distribution, `X_0`.
+            prior: [FloatLike; [D, ...]], samples from the source distribution, `X_0`.
             training_steps: the number of the training steps.
             batch_size: the size of the batch.
-            sample: [FloatLike; [D, ...]], corresponding samples transfered from `src`,
+            sample: [FloatLike; [D, ...]], corresponding samples transfered from `prior`,
                 sample just-in-time if given is integer (assume as the number of the steps for sampling iterations).
             loss_fn: similarity measure between the sample and single-step generated one.
         """
         if isinstance(sample, int):
             with torch.inference_mode():
-                sample, _ = self.sample(src, sample, verbose)
+                sample, _ = self.sample(prior, sample, verbose)
 
         if verbose is None:
             verbose = lambda x: x
@@ -80,7 +80,7 @@ class InstaFlow(RectifiedFlow):
         for i in verbose(range(training_steps)):
             indices = torch.randint(0, len(sample), (batch_size,))
             # [B, ...]
-            estim = src[indices] + self.forward(src[indices], t)
+            estim = prior[indices] + self.forward(prior[indices], t)
             loss = loss_fn(sample[indices], estim)
             # update
             optim.zero_grad()

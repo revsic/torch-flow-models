@@ -79,7 +79,8 @@ class AlignYourFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         self,
         sample: torch.Tensor,
         t: torch.Tensor | None = None,
-        src: torch.Tensor | None = None,
+        prior: torch.Tensor | None = None,
+        label: torch.Tensor | None = None,
         s: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Compute the loss from the sample.
@@ -87,7 +88,7 @@ class AlignYourFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
             sample: [FloatLike; [B, ...]], training data, `x_0`.
             t: [FloatLike; [B]], target timesteps in range[0, 1],
                 sample from uniform distribution if not provided.
-            src: [FloatLike; [B, ...]], sample from the source distribution, `x_1`,
+            prior: [FloatLike; [B, ...]], sample from the source distribution, `x_1`,
                 sample from gaussian if not provided.
         Returns:
             [FloatLike; []], loss value.
@@ -99,20 +100,20 @@ class AlignYourFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
             t = torch.sigmoid(
                 torch.randn(batch_size, device=device) * self.p_std + self.p_mean
             )
-        if src is None:
-            src = torch.randn_like(sample)
+        if prior is None:
+            prior = torch.randn_like(sample)
         if s is None:
             s = torch.sigmoid(
                 torch.randn(batch_size, device=device) * self.p_std + self.p_mean
             )
             t, s = torch.maximum(t, s), torch.minimum(t, s)
         # [B, ...]
-        _t = t.view([batch_size] + [1] * (src.dim() - 1))
-        _s = s.view([batch_size] + [1] * (src.dim() - 1))
+        _t = t.view([batch_size] + [1] * (prior.dim() - 1))
+        _s = s.view([batch_size] + [1] * (prior.dim() - 1))
         # [B, ...]
-        x_t = (1 - _t) * sample + _t * src
+        x_t = (1 - _t) * sample + _t * prior
         if self.teacher is None:
-            v_t = src - sample
+            v_t = prior - sample
         else:
             with torch.no_grad():
                 v_t = self.teacher.velocity(x_t, t)

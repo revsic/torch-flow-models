@@ -41,7 +41,8 @@ class ShortcutModel(nn.Module, ODEModel, SamplingSupports):
         self,
         sample: torch.Tensor,
         t: torch.Tensor | None = None,
-        src: torch.Tensor | None = None,
+        prior: torch.Tensor | None = None,
+        label: torch.Tensor | None = None,
         d: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Compute the loss from the sample.
@@ -49,7 +50,7 @@ class ShortcutModel(nn.Module, ODEModel, SamplingSupports):
             sample: [FloatLike; [B, ...]], training data, `X_1`.
             t: [FloatLike; [B]], target timesteps in range[0, 1],
                 sample from uniform distribution if not provided.
-            src: [FloatLike; [B, ...]], sample from the source distribution, `X_0`,
+            prior: [FloatLike; [B, ...]], sample from the source distribution, `X_0`,
                 sample from gaussian if not provided.
             d: [FloatLike; [B]], target step sizes in range[0, 1],
                 sample from U[1/128, ..., 1/2, 1] if not provided.
@@ -62,8 +63,8 @@ class ShortcutModel(nn.Module, ODEModel, SamplingSupports):
             t = torch.rand(batch_size)
         if d is None:
             d = 1 / (2 ** torch.randint(0, 8, size=(batch_size,)))
-        if src is None:
-            src = torch.randn_like(sample)
+        if prior is None:
+            prior = torch.randn_like(sample)
         # compute objective
         backup = t
         _expand: Callable[[torch.Tensor], torch.Tensor] = lambda x: x.view(
@@ -72,11 +73,11 @@ class ShortcutModel(nn.Module, ODEModel, SamplingSupports):
         # [B, ...]
         t = _expand(t)
         # [B, ...]
-        x_t = t * sample + (1 - t) * src
+        x_t = t * sample + (1 - t) * prior
         # [B, ...], instantaneous flow
         estim = self.forward(x_t, backup, torch.zeros_like(backup))
         # []
-        flowmatch = ((sample - src) - estim).square().mean()
+        flowmatch = ((sample - prior) - estim).square().mean()
         # [B, ...]
         s_t = self.forward(x_t, backup, d)
         s_next = self.forward(x_t + s_t * _expand(d), backup + d, d)

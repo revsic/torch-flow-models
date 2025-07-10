@@ -55,14 +55,15 @@ class ConstantAccelerationFlow(nn.Module, VelocitySupports, SamplingSupports):
         self,
         sample: torch.Tensor,
         t: torch.Tensor | None = None,
-        src: torch.Tensor | None = None,
+        prior: torch.Tensor | None = None,
+        label: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Compute the loss from the sample.
         Args:
             sample: [FloatLike; [B, ...]], training data, `X_1`.
             t: [FloatLike; [B]], target timesteps in range[0, 1],
                 sample from uniform distribution if not provided.
-            src: [FloatLike; [B, ...]], sample from the source distribution, `X_0`,
+            prior: [FloatLike; [B, ...]], sample from the source distribution, `X_0`,
                 sample from gaussian if not provided.
         Returns:
             [FloatLike; []], loss value.
@@ -71,16 +72,16 @@ class ConstantAccelerationFlow(nn.Module, VelocitySupports, SamplingSupports):
         # sample
         if t is None:
             t = torch.rand(batch_size)
-        if src is None:
-            src = torch.randn_like(sample)
+        if prior is None:
+            prior = torch.randn_like(sample)
         # compute objective
         backup = t
         # [B, ...]
         t = t.view([batch_size] + [1] * (sample.dim() - 1))
         # [B, ...]
-        v_0 = self.h * (sample - src)
+        v_0 = self.h * (sample - prior)
         # [B, ...]
-        x_t = (1 - t.square()) * src + t.square() * sample + (t - t.square()) * v_0
+        x_t = (1 - t.square()) * prior + t.square() * sample + (t - t.square()) * v_0
         # [B, ...]
         v_0_estim = self.v_0.forward(x_t, backup)
         # []
@@ -88,7 +89,7 @@ class ConstantAccelerationFlow(nn.Module, VelocitySupports, SamplingSupports):
         # []
         a_loss = (
             (
-                2 * (sample - src)
+                2 * (sample - prior)
                 - 2 * v_0_estim.detach()  # causalized acceleration
                 - self.a_t.forward(x_t, v_0_estim.detach(), backup)
             )

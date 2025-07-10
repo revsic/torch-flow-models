@@ -118,24 +118,14 @@ class PredictionSupports(Protocol):
         ...
 
 
-class ScoreModel(ScoreSupports):
-    """Basis of the score models."""
-
-    def score(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
-        """Estimate the stein score from the given samples, `x_t`.
-        Args:
-            x_t: [FloatLike; [B, ...]], the given samples, `x_t`.
-            t: [FloatLike; [B]], the current timesteps, in range[0, 1].
-        Returns:
-            [FloatLike; [B, ...]], the estimated stein scores.
-        """
-        raise NotImplementedError("ScoreModel.score is not implemented.")
+class ObjectiveSupports(Protocol):
 
     def loss(
         self,
         sample: torch.Tensor,
         t: torch.Tensor | None = None,
         prior: torch.Tensor | None = None,
+        label: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Compute the loss from the sample.
         Args:
@@ -144,10 +134,15 @@ class ScoreModel(ScoreSupports):
                 sample from uniform distribution if not provided.
             prior: [FloatLike; [B, ...]], the samples from the prior distribution,
                 sample from the gaussian if not provided.
+            label: [FloatLike; [B, ...]], additional conditions.
         Returns:
             [FloatLike; []], loss value.
         """
-        raise NotImplementedError("ScoreModel.loss is not implemented.")
+        ...
+
+
+class ScoreModel(ScoreSupports, ObjectiveSupports):
+    """Basis of the score models."""
 
 
 @runtime_checkable
@@ -164,36 +159,8 @@ class VelocitySupports(Protocol):
         ...
 
 
-class ODEModel(VelocitySupports):
+class ODEModel(VelocitySupports, ObjectiveSupports):
     """Basis of the ODE models."""
-
-    def velocity(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
-        """Estimate the velocity of the given samples, `x_t`.
-        Args:
-            x_t: [FloatLike; [B, ...]], the given samples, `x_t`.
-            t: [FloatLike; [B]], the current timesteps, in range[0, 1].
-        Returns:
-            [FloatLike; [B, ...]], the estimated velocity.
-        """
-        raise NotImplementedError("ODEModel.velocity is not implemented.")
-
-    def loss(
-        self,
-        sample: torch.Tensor,
-        t: torch.Tensor | None = None,
-        src: torch.Tensor | None = None,
-    ) -> torch.Tensor:
-        """Compute the loss from the sample.
-        Args:
-            sample: [FloatLike; [B, ...]], the training data.
-            t: [FloatLike; [B]], the target timesteps in range[0, 1],
-                sample from uniform distribution if not provided.
-            src: [FloatLike; [B, ...]], sample from the source distribution,
-                sample from gaussian if not provided.
-        Returns:
-            [FloatLike; []], loss value.
-        """
-        raise NotImplementedError("ODEModel.loss is not implemented.")
 
 
 @runtime_checkable

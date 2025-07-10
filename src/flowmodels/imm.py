@@ -204,14 +204,15 @@ class InductivMomentMatching(
         self,
         sample: torch.Tensor,
         t: torch.Tensor | None = None,
-        src: torch.Tensor | None = None,
+        prior: torch.Tensor | None = None,
+        label: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Compute the loss from the sample.
         Args:
             sample: [FloatLike; [B x 2, ...]], training data.
             t: [FloatLike; [B]], target timesteps in range[0, 1],
                 sample from the proposal distribution if not provided.
-            src: [FloatLike; [B x 2, ...]], sample from the source distribution,
+            prior: [FloatLike; [B x 2, ...]], sample from the source distribution,
                 sample from gaussian if not provided.
         Returns:
             [FloatLike; []], loss value.
@@ -221,8 +222,8 @@ class InductivMomentMatching(
         batch_size, *_ = sample.shape
         _min, _max = self.scheduler.eps, self.scheduler.T
         # sample
-        if src is None:
-            src = torch.randn_like(sample)
+        if prior is None:
+            prior = torch.randn_like(sample)
         if t is None:
             # uniform sampling
             t = torch.rand(batch_size // 2, device=device).clamp(_min, _max)
@@ -231,8 +232,8 @@ class InductivMomentMatching(
         # [B]
         r = self.scheduler.r(s, t)
         # [B, ...], [B, ...]
-        x_t, xp_t = self.noise(sample, t.repeat(2), src).chunk(2)
-        x_r, xp_r = self.noise(sample, r.repeat(2), src).chunk(2)
+        x_t, xp_t = self.noise(sample, t.repeat(2), prior).chunk(2)
+        x_r, xp_r = self.noise(sample, r.repeat(2), prior).chunk(2)
         y_st, yp_st = self.forward(x_t, t, s), self.forward(xp_t, t, s)
         with torch.no_grad():
             y_sr, yp_sr = self.forward(x_r, r, s), self.forward(xp_r, r, s)

@@ -72,7 +72,8 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         self,
         sample: torch.Tensor,
         t: torch.Tensor | None = None,
-        src: torch.Tensor | None = None,
+        prior: torch.Tensor | None = None,
+        label: torch.Tensor | None = None,
         r: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Compute the loss from the sample.
@@ -80,7 +81,7 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
             sample: [FloatLike; [B, ...]], training data, `x_0`.
             t: [FloatLike; [B]], target timesteps in range[0, 1],
                 sample from uniform distribution if not provided.
-            src: [FloatLike; [B, ...]], sample from the source distribution, `x_1`,
+            prior: [FloatLike; [B, ...]], sample from the source distribution, `x_1`,
                 sample from gaussian if not provided.
         Returns:
             [FloatLike; []], loss value.
@@ -92,8 +93,8 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
             t = torch.sigmoid(
                 torch.randn(batch_size, device=device) * self.p_std + self.p_mean
             )
-        if src is None:
-            src = torch.randn_like(sample)
+        if prior is None:
+            prior = torch.randn_like(sample)
         if r is None:
             r = torch.sigmoid(
                 torch.randn(batch_size, device=device) * self.p_std + self.p_mean
@@ -106,8 +107,8 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         bt = t.view([batch_size] + [1] * (sample.dim() - 1))
         br = r.view([batch_size] + [1] * (sample.dim() - 1))
         # [B, ...]
-        x_t = (1 - bt) * sample + bt * src
-        v_t = src - sample
+        x_t = (1 - bt) * sample + bt * prior
+        v_t = prior - sample
         # jvp for meanflow identity
         jvp_fn = torch.compiler.disable(
             torch.func.jvp, recursive=False  # pyright: ignore

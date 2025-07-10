@@ -75,6 +75,7 @@ class DiffusionSchrodingerBridgeMatching(
         sample: torch.Tensor,
         t: torch.Tensor | None = None,
         prior: torch.Tensor | None = None,
+        label: torch.Tensor | None = None,
         direction: Literal["fwd", "bwd"] = "fwd",
     ) -> torch.Tensor:
         """Compute the loss from the sample.

@@ -42,14 +42,15 @@ class RectifiedFlow(nn.Module, ODEModel, SamplingSupports):
         self,
         sample: torch.Tensor,
         t: torch.Tensor | None = None,
-        src: torch.Tensor | None = None,
+        prior: torch.Tensor | None = None,
+        label: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Compute the loss from the sample.
         Args:
             sample: [FloatLike; [B, ...]], training data, `X_1`.
             t: [FloatLike; [B]], target timesteps in range[0, 1],
                 sample from uniform distribution if not provided.
-            src: [FloatLike; [B, ...]], sample from the source distribution, `X_0`,
+            prior: [FloatLike; [B, ...]], sample from the source distribution, `X_0`,
                 sample from gaussian if not provided.
         Returns:
             [FloatLike; []], loss value.
@@ -59,17 +60,17 @@ class RectifiedFlow(nn.Module, ODEModel, SamplingSupports):
         # sample
         if t is None:
             t = torch.rand(batch_size, device=device)
-        if src is None:
-            src = torch.randn_like(sample)
+        if prior is None:
+            prior = torch.randn_like(sample)
         # compute objective
         backup = t
         # [B, ...]
         t = t.view([batch_size] + [1] * (sample.dim() - 1))
         # [B, ...]
-        x_t = t * sample + (1 - t) * src
+        x_t = t * sample + (1 - t) * prior
         # [B, ...]
         estim = self.forward(x_t, backup)
-        return ((sample - src) - estim).square().mean()
+        return ((sample - prior) - estim).square().mean()
 
     def sample(
         self,
@@ -87,7 +88,7 @@ class RectifiedFlow(nn.Module, ODEModel, SamplingSupports):
     def distillation(
         self,
         optim: torch.optim.Optimizer,
-        src: torch.Tensor,
+        prior: torch.Tensor,
         training_steps: int,
         batch_size: int,
         sample: torch.Tensor | int = 1000,
@@ -96,18 +97,18 @@ class RectifiedFlow(nn.Module, ODEModel, SamplingSupports):
         """Distillation for single-step generation."""
         return self.reflow(
             optim=optim,
-            src=src,
+            prior=prior,
             training_steps=training_steps,
             batch_size=batch_size,
             sample=sample,
-            timesteps=torch.zeros(batch_size, dtype=src.dtype, device=src.device),
+            timesteps=torch.zeros(batch_size, dtype=prior.dtype, device=prior.device),
             verbose=verbose,
         )
 
     def reflow(
         self,
         optim: torch.optim.Optimizer,
-        src: torch.Tensor,
+        prior: torch.Tensor,
         training_steps: int,
         batch_size: int,
         sample: torch.Tensor | int = 1000,
@@ -117,7 +118,7 @@ class RectifiedFlow(nn.Module, ODEModel, SamplingSupports):
         """Optimize the model with the reflow-procedure.
         Args:
             optim: optimizer constructed with `self.parameters()`.
-            src: [FloatLike; [D, ...]], samples from the source distribution, `X_0`.
+            prior: [FloatLike; [D, ...]], samples from the source distribution, `X_0`.
             training_steps: the number of the training steps.
             batch_size: the size of the batch.
             sample: [FloatLike; [D, ...]], corresponding samples transfered from `src`,
@@ -125,7 +126,7 @@ class RectifiedFlow(nn.Module, ODEModel, SamplingSupports):
         """
         if isinstance(sample, int):
             with torch.inference_mode():
-                sample, _ = self.sample(src, sample, verbose)
+                sample, _ = self.sample(prior, sample, verbose)
 
         if verbose is None:
             verbose = lambda x: x
@@ -135,7 +136,7 @@ class RectifiedFlow(nn.Module, ODEModel, SamplingSupports):
         for i in verbose(range(training_steps)):
             indices = torch.randint(0, len(sample), (batch_size,))
             t = timesteps() if callable(timesteps) else timesteps
-            loss = self.loss(sample[indices], t=t, src=src[indices])
+            loss = self.loss(sample[indices], t=t, prior=prior[indices])
             # update
             optim.zero_grad()
             loss.backward()

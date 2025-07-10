@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from flowmodels.basis import (
     ContinuousScheduler,
     ForwardProcessSupports,
+    ObjectiveSupports,
     PredictionSupports,
     SamplingSupports,
     ScoreModel,
@@ -20,7 +21,9 @@ from flowmodels.utils import backward_process, discretize_variance
 
 
 @runtime_checkable
-class RectificationSupports(ScoreSupports, ForwardProcessSupports, Protocol):
+class RectificationSupports(
+    ScoreSupports, ForwardProcessSupports, ObjectiveSupports, Protocol
+):
     scheduler: ContinuousScheduler | Scheduler
 
     def forward(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
@@ -30,24 +33,6 @@ class RectificationSupports(ScoreSupports, ForwardProcessSupports, Protocol):
             t: [torch.long; [B]], the current timesteps of the noised sample in range[0, 1].
         Returns:
             estimated noise, score, or data sample from the given sample `x_t`.
-        """
-        ...
-
-    def loss(
-        self,
-        sample: torch.Tensor,
-        t: torch.Tensor | None = None,
-        prior: torch.Tensor | None = None,
-    ) -> torch.Tensor:
-        """Compute the loss from the sample.
-        Args:
-            sample: [FloatLike; [B, ...]], the training data, `x_0`.
-            t: [FloatLike; [B]], the target timesteps in range[0, 1],
-                sample from the uniform distribution if not provided.
-            prior: [FloatLike; [B, ...]], the samples from the prior distribution,
-                sample from the gaussian if not provided.
-        Returns:
-            [FloatLike; []], loss value.
         """
         ...
 
@@ -117,9 +102,10 @@ class RecitifedDiffusion(
         sample: torch.Tensor,
         t: torch.Tensor | None = None,
         prior: torch.Tensor | None = None,
+        label: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Forward to `self.model.loss`."""
-        return self.model.loss(sample, t, prior=prior)
+        return self.model.loss(sample, t, prior=prior, label=label)
 
     def sample(
         self,

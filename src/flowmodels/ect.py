@@ -131,6 +131,7 @@ class EasyConsistencyTraining(
         sample: torch.Tensor,
         t: torch.Tensor | None = None,
         prior: torch.Tensor | None = None,
+        label: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Compute the loss from the sample.
         Args:

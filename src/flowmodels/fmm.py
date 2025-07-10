@@ -75,7 +75,8 @@ class FlowMapMatching(nn.Module, ODEModel, PredictionSupports, SamplingSupports)
         self,
         sample: torch.Tensor,
         t: torch.Tensor | None = None,
-        src: torch.Tensor | None = None,
+        prior: torch.Tensor | None = None,
+        label: torch.Tensor | None = None,
         s: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Compute the loss from the sample.
@@ -83,7 +84,7 @@ class FlowMapMatching(nn.Module, ODEModel, PredictionSupports, SamplingSupports)
             sample: [FloatLike; [B, ...]], training data, `x_0`.
             t: [FloatLike; [B]], target timesteps in range[0, 1],
                 sample from uniform distribution if not provided.
-            src: [FloatLike; [B, ...]], sample from the source distribution, `x_1`,
+            prior: [FloatLike; [B, ...]], sample from the source distribution, `x_1`,
                 sample from gaussian if not provided.
         Returns:
             [FloatLike; []], loss value.
@@ -96,12 +97,12 @@ class FlowMapMatching(nn.Module, ODEModel, PredictionSupports, SamplingSupports)
         if s is None:
             s = torch.rand(batch_size, device=device)
             t, s = torch.maximum(t, s), torch.minimum(t, s)
-        if src is None:
-            src = torch.randn_like(sample)
+        if prior is None:
+            prior = torch.randn_like(sample)
         # [B, ...]
-        _t = t.view([batch_size] + [1] * (src.dim() - 1))
+        _t = t.view([batch_size] + [1] * (prior.dim() - 1))
         # [B, ...]
-        x_t = (1 - _t) * sample + _t * src
+        x_t = (1 - _t) * sample + _t * prior
         # for torch-dynamo inductor supports
         jvp_fn = torch.compiler.disable(
             torch.func.jvp, recursive=False  # pyright: ignore
@@ -129,7 +130,7 @@ class FlowMapMatching(nn.Module, ODEModel, PredictionSupports, SamplingSupports)
                 )
                 loss = jvp.square().mean()
             case "FMM":
-                v_t = src - sample
+                v_t = prior - sample
                 x_s = self.predict(x_t, t, s)
                 estim, jvp = jvp_fn(
                     lambda t: self.predict(x_s, s, t),

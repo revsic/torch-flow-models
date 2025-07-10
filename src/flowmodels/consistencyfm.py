@@ -40,7 +40,8 @@ class ConsistencyFlowMatching(nn.Module, ODEModel, SamplingSupports):
         self,
         sample: torch.Tensor,
         t: torch.Tensor | None = None,
-        src: torch.Tensor | None = None,
+        prior: torch.Tensor | None = None,
+        label: torch.Tensor | None = None,
         ema: Self | EMASupports[Self] | None = None,
         delta_t: float = 1e-3,
         alpha: float = 1e-5,
@@ -50,7 +51,7 @@ class ConsistencyFlowMatching(nn.Module, ODEModel, SamplingSupports):
             sample: [FloatLike; [B, ...]], training data, `X_1`.
             t: [FloatLike; [B]], target timesteps in range[0, 1 - delta_t],
                 sample from uniform distribution if not provided.
-            src: [FloatLike; [B, ...]], sample from the source distribution, `X_0`,
+            prior: [FloatLike; [B, ...]], sample from the source distribution, `X_0`,
                 sample from gaussian if not provided.
             ema: the EMA model for consistency training, use `self` if not provided.
             delta_t: the small value for time difference,
@@ -65,8 +66,8 @@ class ConsistencyFlowMatching(nn.Module, ODEModel, SamplingSupports):
         # sample
         if t is None:
             t = torch.rand(batch_size).clamp_max(1 - delta_t)
-        if src is None:
-            src = torch.randn_like(sample)
+        if prior is None:
+            prior = torch.randn_like(sample)
         # reduce to the Consistency FM
         ema = EMASupports[Self].reduce(self, ema)
         # compute objective
@@ -74,8 +75,8 @@ class ConsistencyFlowMatching(nn.Module, ODEModel, SamplingSupports):
         # [B, ...]
         t = t.view([batch_size] + [1] * (sample.dim() - 1))
         # [B, ...]
-        x_t = t * sample + (1 - t) * src
-        x_td = ((t + delta_t) * sample) + (1 - t - delta_t) * src
+        x_t = t * sample + (1 - t) * prior
+        x_td = ((t + delta_t) * sample) + (1 - t - delta_t) * prior
         # [B, ...]
         estim = self.forward(x_t, backup)
         with torch.inference_mode():

@@ -141,6 +141,7 @@ class ScaledContinuousCM(
         sample: torch.Tensor,
         t: torch.Tensor | None = None,
         prior: torch.Tensor | None = None,
+        label: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Compute the loss from the sample.
         Args:
@@ -287,6 +288,7 @@ class TrigFlow(ScaledContinuousCM):
         sample: torch.Tensor,
         t: torch.Tensor | None = None,
         prior: torch.Tensor | None = None,
+        label: torch.Tensor | None = None,
     ) -> torch.Tensor:
         # shortcut
         batch_size, *_ = sample.shape
