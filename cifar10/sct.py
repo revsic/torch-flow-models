@@ -32,7 +32,7 @@ def reproduce_sct_cifar10():
     )
     load_model(
         _LossDDPWrapper(model),
-        "./test.workspace/trigflow-cifar10/2025.05.16KST21:12:35-lr5e4-fixproposal/ckpt/4081/model.safetensors",
+        "./test.workspace/trigflow-cifar10/2025.07.07KST13:27:38/ckpt/408/model.safetensors",
     )
 
     n_gpus = 2
@@ -41,7 +41,7 @@ def reproduce_sct_cifar10():
     stamp = datetime.now(timezone(timedelta(hours=9))).strftime("%Y.%m.%dKST%H:%M:%S")
     trainer = Cifar10Trainer(
         model,
-        batch_size=225,  # 512 // n_gpus // n_grad_accum,
+        batch_size=768 // n_gpus // n_grad_accum,  # paper: 512
         shuffle=True,
         dataset_path=Path("./"),
         workspace=Path(f"./test.workspace/sct-cifar10/{stamp}"),
@@ -58,8 +58,10 @@ def reproduce_sct_cifar10():
         mixed_precision="no",
         gradient_accumulation_steps=n_grad_accum,
         half_life_ema=500000,
+        clip_grad_norm=0.1,
         _eval_interval=20 * n_grad_accum,
         _fid_steps=2,
+        _nan_to_num=True,
     )
 
 
