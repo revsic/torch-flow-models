@@ -71,20 +71,6 @@ class ContinuousScheduler(ContinuousSchedulerProtocol):
 
 
 @runtime_checkable
-class ScoreSupports(Protocol):
-
-    def score(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
-        """Estimate the stein score from the given samples, `x_t`.
-        Args:
-            x_t: [FloatLike; [B, ...]], the given samples, `x_t`.
-            t: [FloatLike; [B]], the current timesteps, in range[0, 1].
-        Returns:
-            [FloatLike; [B, ...]], the estimated stein scores.
-        """
-        ...
-
-
-@runtime_checkable
 class ForwardProcessSupports(Protocol):
 
     def noise(
@@ -105,19 +91,34 @@ class ForwardProcessSupports(Protocol):
 
 
 @runtime_checkable
-class PredictionSupports(Protocol):
+class ScoreSupports(Protocol):
 
-    def predict(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
-        """Predict the sample points from the `x_t` w.r.t. the timestep `t`.
+    def score(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+        """Estimate the stein score from the given samples, `x_t`.
         Args:
-            x_t: [FloatLike; [B, ...]], the given points, `x_t`.
-            t: [FloatLike; [B]], the target timesteps in range[0, 1].
+            x_t: [FloatLike; [B, ...]], the given samples, `x_t`.
+            t: [FloatLike; [B]], the current timesteps, in range[0, 1].
         Returns:
-            the predicted sample points.
+            [FloatLike; [B, ...]], the estimated stein scores.
         """
         ...
 
 
+@runtime_checkable
+class VelocitySupports(Protocol):
+
+    def velocity(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+        """Estimate the velocity of the given samples, `x_t`.
+        Args:
+            x_t: [FloatLike; [B, ...]], the given samples, `x_t`.
+            t: [FloatLike; [B]], the current timesteps, in range[0, 1].
+        Returns:
+            [FloatLike; [B, ...]], the estimated velocity.
+        """
+        ...
+
+
+@runtime_checkable
 class ObjectiveSupports(Protocol):
 
     def loss(
@@ -141,26 +142,18 @@ class ObjectiveSupports(Protocol):
         ...
 
 
-class ScoreModel(ScoreSupports, ObjectiveSupports):
-    """Basis of the score models."""
-
-
 @runtime_checkable
-class VelocitySupports(Protocol):
+class PredictionSupports(Protocol):
 
-    def velocity(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
-        """Estimate the velocity of the given samples, `x_t`.
+    def predict(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+        """Predict the sample points from the `x_t` w.r.t. the timestep `t`.
         Args:
-            x_t: [FloatLike; [B, ...]], the given samples, `x_t`.
-            t: [FloatLike; [B]], the current timesteps, in range[0, 1].
+            x_t: [FloatLike; [B, ...]], the given points, `x_t`.
+            t: [FloatLike; [B]], the target timesteps in range[0, 1].
         Returns:
-            [FloatLike; [B, ...]], the estimated velocity.
+            the predicted sample points.
         """
         ...
-
-
-class ODEModel(VelocitySupports, ObjectiveSupports):
-    """Basis of the ODE models."""
 
 
 @runtime_checkable
@@ -181,6 +174,14 @@ class SamplingSupports(Protocol):
             `T` x [FloatLike; [B, ...]], sampling trajectories.
         """
         ...
+
+
+class ScoreModel(ScoreSupports, ObjectiveSupports, SamplingSupports):
+    """Basis of the score models."""
+
+
+class ODEModel(VelocitySupports, ObjectiveSupports, SamplingSupports):
+    """Basis of the ODE models."""
 
 
 class Sampler:
