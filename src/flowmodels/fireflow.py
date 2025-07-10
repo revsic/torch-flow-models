@@ -15,6 +15,7 @@ class FireFlowSolver(ODESolver):
         self,
         model: VelocitySupports,
         init: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
@@ -41,6 +42,7 @@ class FireFlowSolver(ODESolver):
             velocity = model.velocity(
                 x_t,
                 torch.zeros(bsize, dtype=torch.float32),
+                label=label,
             )
             for i in verbose(range(steps)):
                 # load the cache
@@ -53,6 +55,7 @@ class FireFlowSolver(ODESolver):
                         (i + 0.5) / steps,
                         dtype=torch.float32,
                     ),
+                    label=label,
                 )
                 x_t = x_t + velocity / steps
                 x_ts.append(x_t)
@@ -65,6 +68,7 @@ class FireFlowInversion(FireFlowSolver):
         self,
         model: VelocitySupports,
         init: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
@@ -72,6 +76,7 @@ class FireFlowInversion(FireFlowSolver):
         return super().solve(
             VelocityInverter(model),
             init,
+            label,
             steps,
             verbose,
         )

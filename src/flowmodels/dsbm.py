@@ -39,6 +39,7 @@ class DiffusionSchrodingerBridgeMatching(
         self,
         x_t: torch.Tensor,
         t: torch.Tensor,
+        label: torch.Tensor | None = None,
         direction: Literal["fwd", "bwd"] = "bwd",
     ):
         """Estimate the stein score from the given samples, `x_t`.
@@ -59,6 +60,7 @@ class DiffusionSchrodingerBridgeMatching(
         self,
         x_t: torch.Tensor,
         t: torch.Tensor,
+        label: torch.Tensor | None = None,
         direction: Literal["fwd", "bwd"] = "bwd",
     ) -> torch.Tensor:
         """Estimate the velocity of the given samples, `x_t`.
@@ -68,7 +70,7 @@ class DiffusionSchrodingerBridgeMatching(
         Returns:
             [FloatLike; [B, ...]], the estimated velocity.
         """
-        return self.score(x_t, t, direction)
+        return self.score(x_t, t, label, direction)
 
     def loss(
         self,
@@ -134,6 +136,7 @@ class DiffusionSchrodingerBridgeMatching(
     def sample(
         self,
         prior: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
         direction: Literal["fwd", "bwd"] = "bwd",
@@ -142,6 +145,7 @@ class DiffusionSchrodingerBridgeMatching(
         return self.sampler.solve(
             self,
             prior,
+            label,
             steps,
             verbose,
             std=0.0,
@@ -161,6 +165,7 @@ class DiffusionSchrodingerBridgeMatching(
         inner_steps: int,
         outer_steps: int = 40,
         steps: int = 20,
+        label: torch.Tensor | None = None,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> list[Logs]:
         """Training loop for the DSBM, Iterative Markovian Fitting.
@@ -191,7 +196,7 @@ class DiffusionSchrodingerBridgeMatching(
                 # [B, ...], sampling
                 z_0, z_1 = pi_0[i], pi_1[i]
                 # []
-                loss = self.loss(z_0, prior=z_1, direction=direction)
+                loss = self.loss(z_0, prior=z_1, label=label, direction=direction)
                 # update
                 optim.zero_grad()
                 loss.backward()
@@ -203,10 +208,10 @@ class DiffusionSchrodingerBridgeMatching(
             # reciprocal projection
             if direction == "fwd":
                 pi_0 = x_0
-                pi_1, _ = self.sample(x_0, steps, verbose, direction="fwd")
+                pi_1, _ = self.sample(x_0, label, steps, verbose, direction="fwd")
             else:
                 pi_1 = x_1
-                pi_0, _ = self.sample(x_1, steps, verbose, direction="bwd")
+                pi_0, _ = self.sample(x_1, label, steps, verbose, direction="bwd")
 
             # flip
             direction = "bwd" if direction == "fwd" else "fwd"
@@ -223,6 +228,7 @@ class ModifiedVanillaEulerSolver(ODESolver):
         self,
         model: VelocitySupports,
         init: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
         std: float = 0.0,
@@ -255,6 +261,7 @@ class ModifiedVanillaEulerSolver(ODESolver):
                 velocity = model.velocity(
                     x_t,
                     torch.full((bsize,), t, dtype=torch.float32),
+                    label=label,
                 )
                 x_t = (
                     x_t

@@ -20,6 +20,7 @@ class InstaFlow(RectifiedFlow):
         training_steps: int,
         batch_size: int,
         steps: int | None = None,
+        label: torch.Tensor | None = None,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[list[float], torch.Tensor]:
         """Distill the knowledge from the given score model.
@@ -34,7 +35,7 @@ class InstaFlow(RectifiedFlow):
         """
         sampler = ProbabilityFlowODESampler(scheduler)
         sample, _ = sampler.sample(
-            model=score_model, prior=prior, steps=steps, verbose=verbose
+            model=score_model, prior=prior, label=label, steps=steps, verbose=verbose
         )
         losses = super().reflow(
             optim=optim,
@@ -42,6 +43,7 @@ class InstaFlow(RectifiedFlow):
             training_steps=training_steps,
             batch_size=batch_size,
             sample=sample,
+            label=label,
             verbose=verbose,
         )
         return losses, sample
@@ -53,6 +55,7 @@ class InstaFlow(RectifiedFlow):
         training_steps: int,
         batch_size: int,
         sample: torch.Tensor | int = 1000,
+        label: torch.Tensor | None = None,
         verbose: Callable[[range], Iterable] | None = None,
         loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] = F.mse_loss,
     ):
@@ -68,7 +71,7 @@ class InstaFlow(RectifiedFlow):
         """
         if isinstance(sample, int):
             with torch.inference_mode():
-                sample, _ = self.sample(prior, sample, verbose)
+                sample, _ = self.sample(prior, label, sample, verbose)
 
         if verbose is None:
             verbose = lambda x: x

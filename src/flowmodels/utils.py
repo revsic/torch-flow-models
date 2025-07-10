@@ -39,9 +39,11 @@ class VelocityInverter(VelocitySupports):
     def __init__(self, model: VelocitySupports):
         self.model = model
 
-    def velocity(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def velocity(
+        self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Invert the estimated velocity"""
-        return -self.model.velocity(x_t, 1 - t)
+        return -self.model.velocity(x_t, 1 - t, label=label)
 
 
 def discretize_variance(
@@ -78,6 +80,7 @@ def backward_process(
     var: torch.Tensor,
     var_prev: torch.Tensor | None = None,
     vp: bool = True,
+    label: torch.Tensor | None = None,
 ):
     """Single step sampler.
     Args:
@@ -88,6 +91,7 @@ def backward_process(
         var_prev: [FloatLike; [B]], the variance of the noise in single step backward at time `t`,
             i.e. `var_{t - d}` of step size `d`.
         vp: whether the given model is formulated with variance preserving process or not.
+        label: [Any; [B, ...]], additional conditions.
     Returns:
         [FloatLike; [B, ...]], estimated sample `x_0` if var_prev is not given,
             otherwise `x_{t-d}` of implicit step size `d` given by `var_prev`.
@@ -97,7 +101,7 @@ def backward_process(
     # [B, ...]
     var = var.view([batch_size] + [1] * (x_t.dim() - 1))
     # [B, ...]
-    eps = -model.score(x_t, t) * var.sqrt().to(x_t)
+    eps = -model.score(x_t, t, label=label) * var.sqrt().to(x_t)
     # [B, ...]
     x_0 = x_t - var.sqrt().to(x_t) * eps
     # variance exploding

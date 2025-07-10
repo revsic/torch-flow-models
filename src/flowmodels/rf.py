@@ -28,7 +28,9 @@ class RectifiedFlow(nn.Module, ODEModel, SamplingSupports):
         """
         return self.velocity_estim(x_t, t)
 
-    def velocity(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def velocity(
+        self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Estimate the velocity of the given samples, `x_t`.
         Args:
             x_t: [FloatLike; [B, ...]], the given samples, `x_t`.
@@ -75,6 +77,7 @@ class RectifiedFlow(nn.Module, ODEModel, SamplingSupports):
     def sample(
         self,
         prior: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | None = 1,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
@@ -83,7 +86,7 @@ class RectifiedFlow(nn.Module, ODEModel, SamplingSupports):
             prior: [FloatLike; [B, ...]], samples from the source distribution, `X_0`.
             steps: the number of the steps.
         """
-        return self.solver.solve(self, prior, steps, verbose)
+        return self.solver.solve(self, prior, label, steps, verbose)
 
     def distillation(
         self,
@@ -92,6 +95,7 @@ class RectifiedFlow(nn.Module, ODEModel, SamplingSupports):
         training_steps: int,
         batch_size: int,
         sample: torch.Tensor | int = 1000,
+        label: torch.Tensor | None = None,
         verbose: Callable[[range], Iterable] | None = None,
     ):
         """Distillation for single-step generation."""
@@ -101,6 +105,7 @@ class RectifiedFlow(nn.Module, ODEModel, SamplingSupports):
             training_steps=training_steps,
             batch_size=batch_size,
             sample=sample,
+            label=label,
             timesteps=torch.zeros(batch_size, dtype=prior.dtype, device=prior.device),
             verbose=verbose,
         )
@@ -112,6 +117,7 @@ class RectifiedFlow(nn.Module, ODEModel, SamplingSupports):
         training_steps: int,
         batch_size: int,
         sample: torch.Tensor | int = 1000,
+        label: torch.Tensor | None = None,
         timesteps: Callable[[], torch.Tensor] | torch.Tensor | None = None,
         verbose: Callable[[range], Iterable] | None = None,
     ):
@@ -126,7 +132,7 @@ class RectifiedFlow(nn.Module, ODEModel, SamplingSupports):
         """
         if isinstance(sample, int):
             with torch.inference_mode():
-                sample, _ = self.sample(prior, sample, verbose)
+                sample, _ = self.sample(prior, label, sample, verbose)
 
         if verbose is None:
             verbose = lambda x: x
@@ -136,7 +142,7 @@ class RectifiedFlow(nn.Module, ODEModel, SamplingSupports):
         for i in verbose(range(training_steps)):
             indices = torch.randint(0, len(sample), (batch_size,))
             t = timesteps() if callable(timesteps) else timesteps
-            loss = self.loss(sample[indices], t=t, prior=prior[indices])
+            loss = self.loss(sample[indices], t=t, prior=prior[indices], label=label)
             # update
             optim.zero_grad()
             loss.backward()

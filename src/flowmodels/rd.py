@@ -53,9 +53,11 @@ class RecitifedDiffusion(
         """Forward to `self.model.forward`."""
         return self.model.forward(x_t, t)
 
-    def score(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def score(
+        self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Forward to `self.model.score`."""
-        return self.model.score(x_t, t)
+        return self.model.score(x_t, t, label=label)
 
     def noise(
         self,
@@ -66,7 +68,9 @@ class RecitifedDiffusion(
         """Forward to `self.model.noise`."""
         return self.model.noise(sample, t, prior)
 
-    def predict(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def predict(
+        self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Predict the sample points `x_0` from the `x_t` w.r.t. the timestep `t`.
         Args:
             x_t: [FloatLike; [B, ...]], the given points, `x_t`.
@@ -95,6 +99,7 @@ class RecitifedDiffusion(
             t,
             var,
             vp=self.model.scheduler.vp,
+            label=label,
         )
 
     def loss(
@@ -110,11 +115,12 @@ class RecitifedDiffusion(
     def sample(
         self,
         prior: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """Forward to the MultistepConsistencySampler."""
-        return self.sampler.sample(self, prior, steps, verbose=verbose)
+        return self.sampler.sample(self, prior, label, steps, verbose=verbose)
 
     def rectify(
         self,
@@ -123,6 +129,7 @@ class RecitifedDiffusion(
         training_steps: int,
         batch_size: int,
         sample: torch.Tensor | int | None = None,
+        label: torch.Tensor | None = None,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[list[float], torch.Tensor]:
         """Optimize the model with the reflow-procedure.
@@ -137,7 +144,7 @@ class RecitifedDiffusion(
         if sample is None or isinstance(sample, int):
             with torch.inference_mode():
                 sampler = ProbabilityFlowODESampler(self.model.scheduler)
-                sample, _ = sampler.sample(self.model, prior, sample, verbose)
+                sample, _ = sampler.sample(self.model, prior, label, sample, verbose)
 
         if verbose is None:
             verbose = lambda x: x
@@ -163,6 +170,7 @@ class RecitifedDiffusion(
         training_steps: int,
         batch_size: int,
         mu: float = 0.99,
+        label: torch.Tensor | None = None,
         loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] = F.mse_loss,
         verbose: Callable[[range], Iterable] | None = None,
     ):
@@ -186,10 +194,12 @@ class RecitifedDiffusion(
             # [T]
             beta = sampler._compute_vp_beta(1 - var)
             # variance-preserving denoiser
-            denoiser = lambda x_t, t: sampler._denoise_vp(ema, x_t, t, beta)
+            denoiser = lambda x_t, t: sampler._denoise_vp(
+                ema, x_t, t, beta, label=label
+            )
         else:
             # variance-exploding denoiser
-            denoiser = lambda x_t, t: sampler._denoise_ve(ema, x_t, t, var)
+            denoiser = lambda x_t, t: sampler._denoise_ve(ema, x_t, t, var, label=label)
 
         if verbose is None:
             verbose = lambda x: x

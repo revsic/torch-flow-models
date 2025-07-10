@@ -63,7 +63,9 @@ class NCSN(nn.Module, ScoreModel, ForwardProcessSupports, SamplingSupports):
         """
         return self.score_estim(x_t, t)
 
-    def score(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def score(
+        self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Estimate the stein score from the given samples, `x_t`.
         Args:
             x_t: [FloatLike; [B, ...]], the given samples, `x_t`.
@@ -115,12 +117,13 @@ class NCSN(nn.Module, ScoreModel, ForwardProcessSupports, SamplingSupports):
     def sample(
         self,
         prior: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """Forward to the AnnealedLangevinDynamicsSampler."""
         assert self.sampler is not None
-        return self.sampler.sample(self, prior, steps, verbose=verbose)
+        return self.sampler.sample(self, prior, label, steps, verbose=verbose)
 
     def noise(
         self,
@@ -170,6 +173,7 @@ class AnnealedLangevinDynamicsSampler(Sampler):
         self,
         model: ScoreSupports,
         prior: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
         eps: list[torch.Tensor] | None = None,
@@ -202,6 +206,7 @@ class AnnealedLangevinDynamicsSampler(Sampler):
                     score = model.score(
                         x_t,
                         torch.full((bsize,), i / self.scheduler.T).to(x_t),
+                        label=label,
                     )
                     x_t = x_t + 0.5 * alpha * score + np.sqrt(alpha) * eps[len(x_ts)]
                     x_ts.append(x_t)

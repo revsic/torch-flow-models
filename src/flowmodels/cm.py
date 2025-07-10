@@ -100,7 +100,9 @@ class ConsistencyModel(
         # [B, ...]
         return cskip * x_t + cout * self.module(x_t, t)
 
-    def predict(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def predict(
+        self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Predict the sample points `x_0` from the `x_t` w.r.t. the timestep `t`.
         Args:
             x_t: [FloatLike; [B, ...]], the given points, `x_t`.
@@ -140,11 +142,12 @@ class ConsistencyModel(
     def sample(
         self,
         prior: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """Forward to the MultistepConsistencySampler."""
-        return self.sampler.sample(self, prior, steps, verbose=verbose)
+        return self.sampler.sample(self, prior, label, steps, verbose=verbose)
 
     def distillation(
         self,
@@ -154,6 +157,7 @@ class ConsistencyModel(
         batch_size: int,
         sample: torch.Tensor,
         mu: float = 0.999,
+        label: torch.Tensor | None = None,
         loss_fn: Callable[[torch.Tensor, torch.Tensor], torch.Tensor] = F.mse_loss,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[list[float], nn.Module]:
@@ -236,6 +240,7 @@ class MultistepConsistencySampler:
         self,
         model: MultistepConsistencySamplerSupports,
         prior: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
@@ -254,7 +259,7 @@ class MultistepConsistencySampler:
         # single-step sampler
         batch_size, *_ = prior.shape
         if steps <= 1:
-            x_0 = model.predict(prior, torch.ones(batch_size))
+            x_0 = model.predict(prior, torch.ones(batch_size), label=label)
             return x_0, [x_0]
         # multi-step sampler
         x_t, x_ts = prior, []
@@ -264,7 +269,7 @@ class MultistepConsistencySampler:
             # [B]
             t = torch.full((batch_size,), t / steps, dtype=torch.float32)
             # [B, ...]
-            x_0 = model.predict(x_t, t)
+            x_0 = model.predict(x_t, t, label=label)
             # [B, ...]
             x_t = model.noise(x_0, t - 1 / steps, prior)
             x_ts.append(x_t)

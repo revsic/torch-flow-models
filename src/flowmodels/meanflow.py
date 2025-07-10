@@ -46,7 +46,9 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         """
         return self.velocity_estim(x_t, t, t - r)
 
-    def velocity(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def velocity(
+        self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Estimate the velocity of the given samples, `x_t` (assume the terminal is zero).
         Args:
             x_t: [FloatLike; [B, ...]], the given samples, `x_t`.
@@ -57,7 +59,9 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         # targeting the origin point
         return self.forward(x_t, t, torch.zeros_like(t))
 
-    def predict(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def predict(
+        self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Predict the sample points `x_0` from the `x_t` w.r.t. the timestep `t`.
         Args:
             x_t: [FloatLike; [B, ...]], the given points, `x_t`.
@@ -66,7 +70,9 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
             the predicted sample points `x_0`.
         """
         (bsize,) = t.shape
-        return x_t - t.view([bsize] + [1] * (x_t.dim() - 1)) * self.velocity(x_t, t)
+        return x_t - t.view([bsize] + [1] * (x_t.dim() - 1)) * self.velocity(
+            x_t, t, label=label
+        )
 
     def loss(
         self,
@@ -134,6 +140,7 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
     def sample(
         self,
         prior: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | None = 1,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:

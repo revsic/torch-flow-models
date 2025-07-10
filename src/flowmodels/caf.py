@@ -41,7 +41,9 @@ class ConstantAccelerationFlow(nn.Module, VelocitySupports, SamplingSupports):
             x_t, v0, t
         )
 
-    def velocity(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def velocity(
+        self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Estimate the velocity of the given samples, `x_t`.
         Args:
             x_t: [FloatLike; [B, ...]], the given samples, `x_t`.
@@ -103,6 +105,7 @@ class ConstantAccelerationFlow(nn.Module, VelocitySupports, SamplingSupports):
     def sample(
         self,
         prior: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
     ):

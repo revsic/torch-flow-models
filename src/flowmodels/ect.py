@@ -100,7 +100,9 @@ class EasyConsistencyTraining(
         # [B, ...]
         return cskip * x_t + cout * self.F0.forward(x_t, t)
 
-    def predict(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def predict(
+        self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Predict the sample points `x_0` from the `x_t` w.r.t. the timestep `t`.
         Args:
             x_t: [FloatLike; [B, ...]], the given points, `x_t`.
@@ -110,7 +112,9 @@ class EasyConsistencyTraining(
         """
         return self.forward(x_t, t)
 
-    def score(self, x_t: torch.Tensor, t: torch.Tensor):
+    def score(
+        self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
+    ):
         """Estimate the stein score from the given sample `x_t`.
         Args:
             x_t: [FloatLike; [B, ...]], sample from the trajectory at time `t`.
@@ -174,11 +178,12 @@ class EasyConsistencyTraining(
     def sample(
         self,
         prior: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """Forward to the MultistepConsistencySampler."""
-        return self.sampler.sample(self, prior, steps, verbose)
+        return self.sampler.sample(self, prior, label, steps, verbose)
 
     def noise(
         self,

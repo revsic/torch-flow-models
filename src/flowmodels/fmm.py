@@ -41,7 +41,9 @@ class FlowMapMatching(nn.Module, ODEModel, PredictionSupports, SamplingSupports)
         """
         return self.F0(x_t, t, t - r)
 
-    def velocity(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def velocity(
+        self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Estimate the velocity of the given samples, `x_t` (assume the terminal is zero).
         Args:
             x_t: [FloatLike; [B, ...]], the given samples, `x_t`.
@@ -53,7 +55,11 @@ class FlowMapMatching(nn.Module, ODEModel, PredictionSupports, SamplingSupports)
         return self.forward(x_t, t, torch.zeros_like(t))
 
     def predict(
-        self, x_t: torch.Tensor, t: torch.Tensor, s: torch.Tensor | None = None
+        self,
+        x_t: torch.Tensor,
+        t: torch.Tensor,
+        label: torch.Tensor | None = None,
+        s: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Predict the sample points `x_s` from the `x_t` w.r.t. the timestep `t`,
             assuming `s` to zero if not provided.
@@ -112,7 +118,7 @@ class FlowMapMatching(nn.Module, ODEModel, PredictionSupports, SamplingSupports)
             case "LMD":
                 assert self.teacher is not None
                 estim, jvp = jvp_fn(
-                    lambda s: self.predict(x_t, t, s),
+                    lambda s: self.predict(x_t, t, s=s),
                     (s,),  # pyright: ignore
                     (torch.ones_like(s),),
                 )
@@ -120,7 +126,7 @@ class FlowMapMatching(nn.Module, ODEModel, PredictionSupports, SamplingSupports)
             case "EMD":
                 assert self.teacher is not None
                 _, jvp = jvp_fn(
-                    self.predict,
+                    lambda x_t, t, s: self.predict(x_t, t, s=s),
                     (x_t, t, s),  # pyright: ignore
                     (
                         self.teacher.velocity(x_t, t),
@@ -133,7 +139,7 @@ class FlowMapMatching(nn.Module, ODEModel, PredictionSupports, SamplingSupports)
                 v_t = prior - sample
                 x_s = self.predict(x_t, t, s)
                 estim, jvp = jvp_fn(
-                    lambda t: self.predict(x_s, s, t),
+                    lambda t: self.predict(x_s, s, s=t),
                     (t,),  # pyright: ignore
                     (torch.ones_like(t),),
                 )
@@ -146,6 +152,7 @@ class FlowMapMatching(nn.Module, ODEModel, PredictionSupports, SamplingSupports)
     def sample(
         self,
         prior: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | None = 1,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:

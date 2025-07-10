@@ -93,11 +93,14 @@ class ForwardProcessSupports(Protocol):
 @runtime_checkable
 class ScoreSupports(Protocol):
 
-    def score(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def score(
+        self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Estimate the stein score from the given samples, `x_t`.
         Args:
             x_t: [FloatLike; [B, ...]], the given samples, `x_t`.
             t: [FloatLike; [B]], the current timesteps, in range[0, 1].
+            label: [Any, [B, ...]], additional conditions.
         Returns:
             [FloatLike; [B, ...]], the estimated stein scores.
         """
@@ -107,11 +110,14 @@ class ScoreSupports(Protocol):
 @runtime_checkable
 class VelocitySupports(Protocol):
 
-    def velocity(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def velocity(
+        self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Estimate the velocity of the given samples, `x_t`.
         Args:
             x_t: [FloatLike; [B, ...]], the given samples, `x_t`.
             t: [FloatLike; [B]], the current timesteps, in range[0, 1].
+            label: [Any, [B, ...]], additional conditions.
         Returns:
             [FloatLike; [B, ...]], the estimated velocity.
         """
@@ -135,7 +141,7 @@ class ObjectiveSupports(Protocol):
                 sample from uniform distribution if not provided.
             prior: [FloatLike; [B, ...]], the samples from the prior distribution,
                 sample from the gaussian if not provided.
-            label: [FloatLike; [B, ...]], additional conditions.
+            label: [Any; [B, ...]], additional conditions.
         Returns:
             [FloatLike; []], loss value.
         """
@@ -145,11 +151,14 @@ class ObjectiveSupports(Protocol):
 @runtime_checkable
 class PredictionSupports(Protocol):
 
-    def predict(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def predict(
+        self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Predict the sample points from the `x_t` w.r.t. the timestep `t`.
         Args:
             x_t: [FloatLike; [B, ...]], the given points, `x_t`.
             t: [FloatLike; [B]], the target timesteps in range[0, 1].
+            label: [Any; [B, ...]], additional conditions.
         Returns:
             the predicted sample points.
         """
@@ -162,12 +171,14 @@ class SamplingSupports(Protocol):
     def sample(
         self,
         prior: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """Sample from the trained distribution from the prior samples.
         Args:
             prior: [FloatLike; [B, ...]], the given prior samples.
+            label: [Any; [B, ...]], additional conditions.
             steps: the number of the steps to sample.
         Returns:
             [FloatLike; [B, ...]], sampled data.
@@ -191,6 +202,7 @@ class Sampler:
         self,
         model: ScoreSupports,
         prior: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
@@ -198,6 +210,7 @@ class Sampler:
         Args:
             model: the score estimation model.
             prior: [FloatLike; [B, ...]], the samples from the prior distribution.
+            label: [Any; [B, ...]], additional conditions.
             steps: the number of the sampling steps.
             verbose: whether writing the progress of the generations or not.
         Returns:
@@ -214,6 +227,7 @@ class ODESolver:
         self,
         model: VelocitySupports,
         init: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
@@ -221,6 +235,7 @@ class ODESolver:
         Args:
             model: the velocity estimation model.
             init: [FloatLike; [B, ...]], starting point of the ODE.
+            label: [Any; [B, ...]], additional conditions.
             steps: the number of the steps.
             verbose: whether writing the progress of the generations or not.
         Returns:

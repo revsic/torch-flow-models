@@ -27,7 +27,9 @@ class ShortcutModel(nn.Module, ODEModel, SamplingSupports):
         """
         return self.velocity_estim(x_t, t, d)
 
-    def velocity(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def velocity(
+        self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Estimate the velocity of the given samples, `x_t`.
         Args:
             x_t: [FloatLike; [B, ...]], the given samples, `x_t`.
@@ -91,6 +93,7 @@ class ShortcutModel(nn.Module, ODEModel, SamplingSupports):
     def sample(
         self,
         prior: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | None = 1,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
@@ -99,7 +102,7 @@ class ShortcutModel(nn.Module, ODEModel, SamplingSupports):
             prior: [FloatLike; [B, ...]], samples from the source distribution, `X_0`.
             steps: the number of the steps.
         """
-        return self.solver.solve_shortcut(self, prior, steps, verbose)
+        return self.solver.solve_shortcut(self, prior, label, steps, verbose)
 
 
 class ShortcutEulerSolver(ODESolver):
@@ -111,6 +114,7 @@ class ShortcutEulerSolver(ODESolver):
         self,
         model: ShortcutModel,
         init: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:

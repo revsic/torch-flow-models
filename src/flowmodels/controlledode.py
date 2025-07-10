@@ -16,6 +16,7 @@ class ControlledODESolver(ODESolver):
         self,
         model: VelocitySupports,
         init: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
         reference: torch.Tensor | None = None,
@@ -53,7 +54,9 @@ class ControlledODESolver(ODESolver):
                 # u_t(Y_t|y_1) = c(Y_t, t) = (y_1 - Y_t) / (1 - t)
                 controller = (reference - x_t) / (1 - t)
                 velocity = model.velocity(
-                    x_t, torch.full((bsize,), t, dtype=torch.float32)
+                    x_t,
+                    torch.full((bsize,), t, dtype=torch.float32),
+                    label=label,
                 )
                 # controlled velocity
                 velocity = velocity + eta * (controller - velocity)
@@ -69,6 +72,7 @@ class ControlledODEInversion(ControlledODESolver):
         self,
         model: VelocitySupports,
         init: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
         reference: torch.Tensor | None = None,
@@ -83,6 +87,7 @@ class ControlledODEInversion(ControlledODESolver):
         return super().solve(
             VelocityInverter(model),
             init,
+            label,
             steps,
             verbose,
             reference=reference,

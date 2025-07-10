@@ -14,6 +14,7 @@ class VanillaEulerSolver(ODESolver):
         self,
         model: VelocitySupports,
         init: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
@@ -39,6 +40,7 @@ class VanillaEulerSolver(ODESolver):
                 velocity = model.velocity(
                     x_t,
                     torch.full((bsize,), i / steps, dtype=torch.float32),
+                    label=label,
                 )
                 x_t = x_t + velocity / steps
                 x_ts.append(x_t)

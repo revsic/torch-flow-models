@@ -22,6 +22,7 @@ class ProbabilityFlowODESampler(Sampler):
         self,
         model: ScoreSupports,
         prior: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
@@ -38,10 +39,12 @@ class ProbabilityFlowODESampler(Sampler):
         # variance preserving
         if self.scheduler.vp:
             return self._solve_variance_preserving_score_model(
-                model, prior, steps, verbose
+                model, prior, label, steps, verbose
             )
         # variance exploding
-        return self._solve_variance_exploding_score_model(model, prior, steps, verbose)
+        return self._solve_variance_exploding_score_model(
+            model, prior, label, steps, verbose
+        )
 
     def _compute_vp_beta(self, alpha_bar: torch.Tensor) -> torch.Tensor:
         """Compute the beta sequence.
@@ -65,6 +68,7 @@ class ProbabilityFlowODESampler(Sampler):
         x_t: torch.Tensor,
         t: torch.Tensor,
         beta: torch.Tensor,
+        label: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Denoise the given sample `x_t` to the single-step backward `x_{t-1}`.
         Args:
@@ -82,13 +86,14 @@ class ProbabilityFlowODESampler(Sampler):
         # [B, ...]
         b = beta[t - 1].view([bsize] + [1] * (x_t.dim() - 1))
         # [B, ...]
-        score = model.score(x_t, t / T)
+        score = model.score(x_t, t / T, label=label)
         return (2 - (1 - b).sqrt()).to(x_t) * x_t + 0.5 * b.to(x_t) * score
 
     def _solve_variance_preserving_score_model(
         self,
         model: ScoreSupports,
         prior: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
@@ -118,7 +123,7 @@ class ProbabilityFlowODESampler(Sampler):
         with torch.inference_mode():
             for t in verbose(range(T, 0, -1)):
                 t = torch.full((bsize,), t, dtype=torch.long)
-                x_t = self._denoise_vp(model, x_t, t, beta)
+                x_t = self._denoise_vp(model, x_t, t, beta, label=label)
                 x_ts.append(x_t)
         return x_t, x_ts
 
@@ -128,6 +133,7 @@ class ProbabilityFlowODESampler(Sampler):
         x_t: torch.Tensor,
         t: torch.Tensor,
         var: torch.Tensor,
+        label: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Denoise the given sample `x_t` to the single-step backward `x_{t-1}`.
         Args:
@@ -143,13 +149,14 @@ class ProbabilityFlowODESampler(Sampler):
         # [T, ...]
         var = var.view([T] + [1] * (x_t.dim() - 1))
         # [B, ...]
-        score = model.score(x_t, t / T)
+        score = model.score(x_t, t / T, label=label)
         return x_t + 0.5 * (var[t - 1] - var[(t - 2).clamp_min(0)]).to(score) * score
 
     def _solve_variance_exploding_score_model(
         self,
         model: ScoreSupports,
         prior: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
@@ -179,6 +186,6 @@ class ProbabilityFlowODESampler(Sampler):
         with torch.inference_mode():
             for t in verbose(range(T, 0, -1)):
                 t = torch.full((bsize,), t, dtype=torch.long)
-                x_t = self._denoise_ve(model, x_t, t, var)
+                x_t = self._denoise_ve(model, x_t, t, var, label=label)
                 x_ts.append(x_t)
         return x_t, x_ts

@@ -15,6 +15,7 @@ class RFSolver(ODESolver):
         self,
         model: VelocitySupports,
         init: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
@@ -39,12 +40,15 @@ class RFSolver(ODESolver):
             delta_t = 0.5 / steps
             for i in verbose(range(steps)):
                 velocity = model.velocity(
-                    x_t, torch.full((bsize,), i / steps, dtype=torch.float32)
+                    x_t,
+                    torch.full((bsize,), i / steps, dtype=torch.float32),
+                    label=label,
                 )
                 x_t_half = x_t + velocity * delta_t
                 velocity_half = model.velocity(
                     x_t_half,
                     torch.full((bsize,), i / steps + delta_t, dtype=torch.float32),
+                    label=label,
                 )
                 # computing acceleration
                 accel = (velocity_half - velocity) / delta_t
@@ -60,6 +64,7 @@ class RFInversion(RFSolver):
         self,
         model: VelocitySupports,
         init: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
@@ -67,6 +72,7 @@ class RFInversion(RFSolver):
         return super().solve(
             VelocityInverter(model),
             init,
+            label,
             steps,
             verbose,
         )

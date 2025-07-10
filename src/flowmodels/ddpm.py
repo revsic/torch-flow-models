@@ -61,7 +61,9 @@ class DDPM(nn.Module, ScoreModel, ForwardProcessSupports, SamplingSupports):
         """
         return self.noise_estim(x_t, t)
 
-    def score(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def score(
+        self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Estimate the stein score from the given samples, `x_t`.
         Args:
             x_t: [FloatLike; [B, ...]], the given samples, `x_t`.
@@ -117,11 +119,12 @@ class DDPM(nn.Module, ScoreModel, ForwardProcessSupports, SamplingSupports):
     def sample(
         self,
         prior: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """Forward to the DDPMSampler."""
-        return self.sampler.sample(self, prior, steps, verbose=verbose)
+        return self.sampler.sample(self, prior, label, steps, verbose=verbose)
 
     def noise(
         self,
@@ -170,6 +173,7 @@ class DDPMSampler(Sampler):
         self,
         model: ScoreSupports,
         prior: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
         eps: Sequence[torch.Tensor | None] | None = None,
@@ -201,7 +205,7 @@ class DDPMSampler(Sampler):
         with torch.inference_mode():
             for i in verbose(range(self.scheduler.T, 0, -1)):
                 t = torch.full((bsize,), i, dtype=torch.long)
-                score = model.score(x_t, t / self.scheduler.T)
+                score = model.score(x_t, t / self.scheduler.T, label=label)
                 e_t = -score * std[i - 1, None].to(score.device, score.dtype)
                 x_t = self.denoise(x_t, e_t, t, eps=eps[i - 1])
                 x_ts.append(x_t)

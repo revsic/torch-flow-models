@@ -54,7 +54,9 @@ class DistributionMatchingDistillation(
         """
         return self.generator.forward(x_t, t)
 
-    def predict(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def predict(
+        self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Estimate the `x_0` from the given `x_t`.
         Args:
             x_t: [FloatLike; [B, ...]], sample from the trajectory at time `t`.
@@ -81,16 +83,17 @@ class DistributionMatchingDistillation(
     def sample(
         self,
         prior: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """Forward to the MultistepConsistencySampler."""
         if steps is None or steps <= 1:
             bsize, *_ = prior.shape
-            x_0 = self.predict(prior, torch.ones(bsize, device=prior.device))
+            x_0 = self.predict(prior, torch.ones(bsize, device=prior.device), label)
             return x_0, [x_0]
 
-        return self.sampler.sample(self, prior, steps, verbose)
+        return self.sampler.sample(self, prior, label, steps, verbose)
 
     def dmd(
         self,

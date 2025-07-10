@@ -190,7 +190,9 @@ class InductivMomentMatching(
             return x_0
         return self._ddim(x_t, x_0, s, t)
 
-    def predict(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def predict(
+        self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Predict the sample points `x_0` from the `x_t` w.r.t. the timestep `t`.
         Args:
             x_t: [FloatLike; [B, ...]], the given points, `x_t`.
@@ -270,11 +272,12 @@ class InductivMomentMatching(
     def sample(
         self,
         prior: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """Forward to the MultistepConsistencySampler."""
-        return self.sampler.sample(self, prior, steps, verbose)
+        return self.sampler.sample(self, prior, label, steps, verbose)
 
     def _ddim(
         self, x_t: torch.Tensor, x_0: torch.Tensor, s: torch.Tensor, t: torch.Tensor

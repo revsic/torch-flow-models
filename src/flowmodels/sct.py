@@ -83,7 +83,9 @@ class ScaledContinuousCM(
     def _debug_purpose(self):
         return {**self._debug_from_loss, **getattr(self.F0, "_debug_purpose", {})}
 
-    def forward(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Estimate the `x_0` from the given `x_t`.
         Args:
             x_t: [FloatLike; [B, ...]] the given noised sample, `x_t`.
@@ -96,9 +98,15 @@ class ScaledContinuousCM(
         sigma_d = self.scheduler.sigma_d
         # [B, ...], scale t to range[0, pi/2]
         bt = t.view([bsize] + [1] * (x_t.dim() - 1))
-        return bt.cos() * x_t - bt.sin() * sigma_d * self.F0(x_t / sigma_d, t)
+        # condition
+        kwargs = {}
+        if label is not None:
+            kwargs["label"] = label
+        return bt.cos() * x_t - bt.sin() * sigma_d * self.F0(x_t / sigma_d, t, **kwargs)
 
-    def predict(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def predict(
+        self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Predict the sample points `x_0` from the `x_t` w.r.t. the timestep `t`.
         Args:
             x_t: [FloatLike; [B, ...]], the given points, `x_t`.
@@ -106,9 +114,11 @@ class ScaledContinuousCM(
         Returns:
             the predicted sample points `x_0`.
         """
-        return self.forward(x_t, t * np.pi * 0.5)
+        return self.forward(x_t, t * np.pi * 0.5, label=label)
 
-    def velocity(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def velocity(
+        self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Estimate the velocity of the given samples, `x_t`.
         Args:
             x_t: [FloatLike; [B, ...]], the given samples, `x_t`.
@@ -116,10 +126,15 @@ class ScaledContinuousCM(
         Returns:
             [FloatLike; [B, ...]], the estimated velocity.
         """
+        kwargs = {}
+        if label is not None:
+            kwargs["label"] = label
         sigma_d = self.scheduler.sigma_d
-        return sigma_d * self.F0(x_t / sigma_d, t * np.pi * 0.5)
+        return sigma_d * self.F0(x_t / sigma_d, t * np.pi * 0.5, **kwargs)
 
-    def score(self, x_t: torch.Tensor, t: torch.Tensor):
+    def score(
+        self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
+    ):
         """Estimate the stein score from the given sample `x_t`.
         Args:
             x_t: [FloatLike; [B, ...]], sample from the trajectory at time `t`.
@@ -129,7 +144,7 @@ class ScaledContinuousCM(
         """
         (bsize,) = t.shape
         # [B, ...]
-        x_0 = self.predict(x_t, t)
+        x_0 = self.predict(x_t, t, label=label)
         # [B, ...]
         var = self.scheduler.var(t).view([bsize] + [1] * (x_0.dim() - 1))
         # simplified:
@@ -179,22 +194,25 @@ class ScaledContinuousCM(
         # [B, ...]
         v_t = _t.cos() * sigma_d * prior - _t.sin() * sample
         # [B, ...], [B, ...], jvp = sigma_d * t.cos() * t.sin() * dF/dt
+        kwargs = {}
+        if label is not None:
+            kwargs["label"] = label
         if self._approx_jvp:
             # shortcut
             dt = self._dt
             fwd = lambda t, bt: self.F0.forward(
-                bt.cos() * sample / sigma_d + bt.sin() * prior, t
+                bt.cos() * sample / sigma_d + bt.sin() * prior, t, **kwargs
             )
             # approximation w/o JVP
             dFdt = (fwd(t + dt, _t + dt) - fwd(t - dt, _t - dt)) / (2 * dt)
             jvp = dFdt * _t.cos() * _t.sin() * sigma_d
-            estim = self.F0.forward(x_t / sigma_d, t)
+            estim = self.F0.forward(x_t / sigma_d, t, **kwargs)
         else:
             jvp_fn = torch.compiler.disable(
                 torch.func.jvp, recursive=False  # pyright: ignore
             )
             estim, jvp, *_ = jvp_fn(
-                self.F0.forward,
+                lambda x, t: self.F0.forward(x, t, **kwargs),
                 (x_t / sigma_d, t),  # pyright: ignore
                 (_t.cos() * _t.sin() * v_t, t.cos() * t.sin() * sigma_d),
             )
@@ -233,6 +251,7 @@ class ScaledContinuousCM(
     def sample(
         self,
         prior: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | list[float] | None = None,
         verbose: Callable[[range], Iterable] | None = None,
         sigma_max: float = 80.0,
@@ -252,7 +271,7 @@ class ScaledContinuousCM(
         batch_size, *_ = prior.shape
         if isinstance(steps, int) and steps <= 1:
             t = torch.full((batch_size,), t_max, dtype=dtype, device=device)
-            x_0 = self.forward(prior, t)
+            x_0 = self.forward(prior, t, label=label)
             return x_0, [x_0]
         # proposed steps
         if steps == 2:
@@ -270,7 +289,7 @@ class ScaledContinuousCM(
             # [B]
             t = torch.full((batch_size,), steps[i], dtype=dtype, device=device)
             # [B, ...]
-            x_0 = self.forward(x_t, t)
+            x_0 = self.forward(x_t, t, label=label)
             if i < len(steps) - 1:
                 t_next = torch.full(rdim, steps[i + 1], dtype=dtype, device=device)
                 x_t = t_next.cos() * x_0 + t_next.sin() * prior
@@ -314,7 +333,10 @@ class TrigFlow(ScaledContinuousCM):
         # [B, ...]
         v_t = _t.cos() * sigma_d * prior - _t.sin() * sample
         # [B, ...]
-        estim = sigma_d * self.F0.forward(x_t / sigma_d, t)
+        kwargs = {}
+        if label is not None:
+            kwargs["label"] = label
+        estim = sigma_d * self.F0.forward(x_t / sigma_d, t, **kwargs)
         # reducing dimension
         rdim = [i + 1 for i in range(x_t.dim() - 1)]
         # [B]
@@ -333,6 +355,7 @@ class TrigFlow(ScaledContinuousCM):
     def sample(  # pyright: ignore
         self,
         prior: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
         sigma_min: float = 0.02,
@@ -350,7 +373,7 @@ class TrigFlow(ScaledContinuousCM):
             verbose = lambda x: x
         # shortcut
         if steps <= 1:
-            x = self.predict(prior, torch.full((batch_size,), np.pi * 0.5))
+            x = self.predict(prior, torch.full((batch_size,), np.pi * 0.5), label=label)
             return x, [x]
         # sample parameter for moving device
         p = next(self.parameters())
@@ -363,6 +386,10 @@ class TrigFlow(ScaledContinuousCM):
         ) ** rho
         # [T + 1]
         t_steps = F.pad(t_steps, [0, 1], "constant", 0.0)
+        # condition supports
+        kwargs = {}
+        if label is not None:
+            kwargs["label"] = label
         # Main sampling loop.
         x, xs = prior.to(dtype) * sigma_d, []
         for i in verbose(range(steps)):
@@ -373,16 +400,18 @@ class TrigFlow(ScaledContinuousCM):
             # [B]
             _t = t_hat.repeat(batch_size)
             # [B, ...], rescale t-steps into range[0, 1]
-            d_cur = sigma_d * self.F0.forward(x_hat.to(p) / sigma_d, _t.to(p)).to(dtype)
+            d_cur = sigma_d * self.F0.forward(
+                x_hat.to(p) / sigma_d, _t.to(p), **kwargs
+            ).to(dtype)
             x = torch.cos(t_hat - t_next) * x_hat - torch.sin(t_hat - t_next) * d_cur
             # 2nd-order midpoint correction
             if i < steps - 1 and correction:
                 # [B]
                 _t = t_next.repeat(batch_size)
                 # [B, ...], rescale t-steps into range[0, 1]
-                d_prime = sigma_d * self.F0.forward(x.to(p) / sigma_d, _t.to(p)).to(
-                    dtype
-                )
+                d_prime = sigma_d * self.F0.forward(
+                    x.to(p) / sigma_d, _t.to(p), **kwargs
+                ).to(dtype)
                 x = torch.cos(t_hat - t_next) * x_hat - torch.sin(t_hat - t_next) * (
                     0.5 * d_cur + 0.5 * d_prime
                 )

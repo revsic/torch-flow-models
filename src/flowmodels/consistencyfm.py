@@ -26,7 +26,9 @@ class ConsistencyFlowMatching(nn.Module, ODEModel, SamplingSupports):
         """
         return self.velocity_estim(x_t, t)
 
-    def velocity(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def velocity(
+        self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Estimate the velocity of the given samples, `x_t`.
         Args:
             x_t: [FloatLike; [B, ...]], the given samples, `x_t`.
@@ -93,6 +95,7 @@ class ConsistencyFlowMatching(nn.Module, ODEModel, SamplingSupports):
     def sample(
         self,
         prior: torch.Tensor,
+        label: torch.Tensor | None = None,
         steps: int | None = 1,
         verbose: Callable[[range], Iterable] | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
@@ -101,4 +104,4 @@ class ConsistencyFlowMatching(nn.Module, ODEModel, SamplingSupports):
             prior: [FloatLike; [B, ...]], samples from the source distribution, `X_0`.
             steps: the number of the steps.
         """
-        return self.solver.solve(self, prior, steps, verbose)
+        return self.solver.solve(self, prior, label, steps, verbose)
