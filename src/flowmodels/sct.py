@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Callable, Iterable, Self
+from typing import Callable, Iterable
 
 import numpy as np
 import torch
@@ -8,14 +8,11 @@ import torch.nn.functional as F
 
 from flowmodels.basis import (
     ContinuousScheduler,
-    ForwardProcessSupports,
     PredictionSupports,
     SamplingSupports,
     ScoreModel,
     VelocitySupports,
 )
-from flowmodels.cm import MultistepConsistencySampler
-from flowmodels.utils import EMASupports
 
 
 @dataclass
@@ -68,6 +65,8 @@ class ScaledContinuousCM(
         scheduler: ScaledContinuousCMScheduler,
         tangent_warmup: int | None = None,
         _ada_weight_size: int = 128,
+        _approx_jvp: bool = True,
+        _dt: float = 0.005,
     ):
         super().__init__()
         self.F0 = module
@@ -76,6 +75,8 @@ class ScaledContinuousCM(
         self._ada_weight = _AdaptiveWeights(_ada_weight_size)
         # debug purpose
         self._debug_from_loss = {}
+        self._approx_jvp = _approx_jvp
+        self._dt = _dt
 
     # debug purpose
     @property
@@ -140,7 +141,6 @@ class ScaledContinuousCM(
         sample: torch.Tensor,
         t: torch.Tensor | None = None,
         prior: torch.Tensor | None = None,
-        ema: Self | EMASupports[Self] | None = None,
     ) -> torch.Tensor:
         """Compute the loss from the sample.
         Args:
@@ -177,29 +177,37 @@ class ScaledContinuousCM(
         x_t = _t.cos() * sample + _t.sin() * sigma_d * prior
         # [B, ...]
         v_t = _t.cos() * sigma_d * prior - _t.sin() * sample
-        # ENGINEERING: Out-of-inference mode multiplication for torch-dynamo inductor support
-        _tangents = (_t.cos() * _t.sin() * v_t, t.cos() * t.sin() * sigma_d)
         # [B, ...], [B, ...], jvp = sigma_d * t.cos() * t.sin() * dF/dt
-        with torch.no_grad():
+        if self._approx_jvp:
+            # shortcut
+            dt = self._dt
+            fwd = lambda t, bt: self.F0.forward(
+                bt.cos() * sample / sigma_d + bt.sin() * prior, t
+            )
+            # approximation w/o JVP
+            dFdt = (fwd(t + dt, _t + dt) - fwd(t - dt, _t - dt)) / (2 * dt)
+            jvp = dFdt * _t.cos() * _t.sin() * sigma_d
+            estim = self.F0.forward(x_t / sigma_d, t)
+        else:
             jvp_fn = torch.compiler.disable(
                 torch.func.jvp, recursive=False  # pyright: ignore
             )
-            F, jvp, *_ = jvp_fn(
-                EMASupports[Self].reduce(self, ema).F0.forward,
+            estim, jvp, *_ = jvp_fn(
+                self.F0.forward,
                 (x_t / sigma_d, t),  # pyright: ignore
-                _tangents,
+                (_t.cos() * _t.sin() * v_t, t.cos() * t.sin() * sigma_d),
             )
         # warmup scaler
         r = 1.0
         if self._tangent_warmup:
             r = min(self._steps / self._tangent_warmup, 1.0)
             self._steps += 1
+        # stop grad
+        F = estim.detach()
         # df/dt = -t.cos() * (sigma_d * F(x_t/sigma_d, t) - dx_t/dt) - t.sin() * (x_t + sigma_d * dF/dt)
         cos_mul_grad = -_t.cos().square() * (sigma_d * F - v_t) - r * (
-            _t.sin() * _t.cos() * x_t + jvp
+            _t.sin() * _t.cos() * x_t + jvp.detach()
         )
-        # [B, ...]
-        estim: torch.Tensor = self.F0.forward(x_t / sigma_d, t)
         # reducing dimension
         rdim = [i + 1 for i in range(x_t.dim() - 1)]
         # normalized tangent
@@ -279,7 +287,6 @@ class TrigFlow(ScaledContinuousCM):
         sample: torch.Tensor,
         t: torch.Tensor | None = None,
         prior: torch.Tensor | None = None,
-        ema: Self | EMASupports[Self] | None = None,
     ) -> torch.Tensor:
         # shortcut
         batch_size, *_ = sample.shape
