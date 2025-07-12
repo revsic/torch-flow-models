@@ -82,7 +82,9 @@ class EasyConsistencyTraining(
         self.sampler = MultistepConsistencySampler()
         self._step = 0
 
-    def forward(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Estimate the `x_0` from the given `x_t`.
         Args:
             x_t: [FloatLike; [B, ...]] the given noised sample, `x_t`.
@@ -93,12 +95,15 @@ class EasyConsistencyTraining(
         # shortcut
         (bsize,) = t.shape
         rdim = [bsize] + [1] * (x_t.dim() - 1)
+        kwargs = {}
+        if label is not None:
+            kwargs["label"] = label
         # [B, ...]
         cskip, cout = self.scheduler.cskip(t).view(rdim), self.scheduler.cout(t).view(
             rdim
         )
         # [B, ...]
-        return cskip * x_t + cout * self.F0.forward(x_t, t)
+        return cskip * x_t + cout * self.F0.forward(x_t, t, **kwargs)
 
     def predict(
         self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
@@ -110,7 +115,7 @@ class EasyConsistencyTraining(
         Returns:
             the predicted sample points `x_0`.
         """
-        return self.forward(x_t, t)
+        return self.forward(x_t, t, label=label)
 
     def score(
         self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
@@ -124,7 +129,7 @@ class EasyConsistencyTraining(
         """
         (bsize,) = t.shape
         # [B, ...]
-        x_0 = self.forward(x_t, t)
+        x_0 = self.forward(x_t, t, label=label)
         # [B, ...]
         var = self.scheduler.var(t).view([bsize] + [1] * (x_0.dim() - 1))
         # [B, ...], score of variance-exploding scheme
@@ -168,9 +173,9 @@ class EasyConsistencyTraining(
         # [B, ...]
         x_r = self.noise(sample, r, prior)
         with torch.no_grad():
-            x_r0 = self.forward(x_r, r)
+            x_r0 = self.forward(x_r, r, label=label)
         # []
-        loss = (self.forward(x_t, t) - x_r0.detach()).square().mean()
+        loss = (self.forward(x_t, t, label=label) - x_r0.detach()).square().mean()
         # update internal state
         self._step += 1
         return loss

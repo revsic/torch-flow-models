@@ -22,6 +22,7 @@ class DiffusionSchrodingerBridgeMatching(
         self,
         x_t: torch.Tensor,
         t: torch.Tensor,
+        label: torch.Tensor | None = None,
         direction: Literal["fwd", "bwd"] = "bwd",
     ) -> torch.Tensor:
         """Estimate the score from the given `x_t` w.r.t. the given direction.
@@ -31,9 +32,12 @@ class DiffusionSchrodingerBridgeMatching(
         Returns:
             estimated score from the given sample `x_t`.
         """
+        kwargs = {}
+        if label is not None:
+            kwargs["label"] = label
         if direction == "fwd":
-            return self.fwd(x_t, t)
-        return self.bwd(x_t, t)
+            return self.fwd(x_t, t, **kwargs)
+        return self.bwd(x_t, t, **kwargs)
 
     def score(
         self,
@@ -50,7 +54,7 @@ class DiffusionSchrodingerBridgeMatching(
             [FloatLike; [B, ...]], the etimated scores.
         """
         # ideal case: fwd = -bwd
-        mean = 0.5 * (self.fwd(x_t, t) - self.bwd(x_t, t))
+        mean = 0.5 * (self.fwd(x_t, t, label) - self.bwd(x_t, t, label))
         if direction == "fwd":
             return mean
         # reverse direction
@@ -107,7 +111,7 @@ class DiffusionSchrodingerBridgeMatching(
         # brownian bridge between z_1 and z_0
         x_t = _t.to(x_1) * x_1 + (1 - _t).to(x_1) * x_0 + self.std * z
         # estimate
-        estim = self.forward(x_t, t, direction)
+        estim = self.forward(x_t, t, label, direction)
         # direction-aware targets
         target: torch.Tensor
         if direction == "fwd":
@@ -184,6 +188,7 @@ class DiffusionSchrodingerBridgeMatching(
             verbose = lambda x: x
 
         losses = []
+        _label = None
         # backward first (since we assume `x_0` is the data distribution, and `x_1` is the prior)
         direction = "bwd"
         # independent coupling for initializing training loop
@@ -193,10 +198,12 @@ class DiffusionSchrodingerBridgeMatching(
             for inner in verbose(range(inner_steps)):
                 # [B]
                 i = torch.randint(0, len(x_0), (batch_size,))
+                if label is not None:
+                    _label = label[i]
                 # [B, ...], sampling
                 z_0, z_1 = pi_0[i], pi_1[i]
                 # []
-                loss = self.loss(z_0, prior=z_1, label=label, direction=direction)
+                loss = self.loss(z_0, prior=z_1, label=_label, direction=direction)
                 # update
                 optim.zero_grad()
                 loss.backward()

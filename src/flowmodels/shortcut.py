@@ -15,7 +15,11 @@ class ShortcutModel(nn.Module, ODEModel, SamplingSupports):
         self.solver = ShortcutEulerSolver()
 
     def forward(
-        self, x_t: torch.Tensor, t: torch.Tensor, d: torch.Tensor
+        self,
+        x_t: torch.Tensor,
+        t: torch.Tensor,
+        d: torch.Tensor,
+        label: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Estimate the causalized velocity from the given x_t; t.
         Args:
@@ -25,7 +29,10 @@ class ShortcutModel(nn.Module, ODEModel, SamplingSupports):
         Returns:
             estimated velocity from the given sample `x_t`.
         """
-        return self.velocity_estim(x_t, t, d)
+        kwargs = {}
+        if label is not None:
+            kwargs["label"] = label
+        return self.velocity_estim(x_t, t, d, **kwargs)
 
     def velocity(
         self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
@@ -37,7 +44,7 @@ class ShortcutModel(nn.Module, ODEModel, SamplingSupports):
         Returns:
             [FloatLike; [B, ...]], the estimated velocity.
         """
-        return self.forward(x_t, t, torch.zeros_like(t))
+        return self.forward(x_t, t, torch.zeros_like(t), label=label)
 
     def loss(
         self,
@@ -77,17 +84,16 @@ class ShortcutModel(nn.Module, ODEModel, SamplingSupports):
         # [B, ...]
         x_t = t * sample + (1 - t) * prior
         # [B, ...], instantaneous flow
-        estim = self.forward(x_t, backup, torch.zeros_like(backup))
+        estim = self.forward(x_t, backup, torch.zeros_like(backup), label=label)
         # []
         flowmatch = ((sample - prior) - estim).square().mean()
         # [B, ...]
-        s_t = self.forward(x_t, backup, d)
-        s_next = self.forward(x_t + s_t * _expand(d), backup + d, d)
+        s_t = self.forward(x_t, backup, d, label=label)
+        s_next = self.forward(x_t + s_t * _expand(d), backup + d, d, label=label)
         s_target = 0.5 * (s_t + s_next)
         # []
-        consistency = (
-            (self.forward(x_t, backup, 2 * d) - s_target.detach()).square().mean()
-        )
+        estim = self.forward(x_t, backup, 2 * d, label=label)
+        consistency = (estim - s_target.detach()).square().mean()
         return flowmatch + consistency
 
     def sample(
@@ -141,6 +147,7 @@ class ShortcutEulerSolver(ODESolver):
                     x_t,
                     torch.full((bsize,), i / steps, dtype=torch.float32),
                     torch.full((bsize,), 1 / steps, dtype=torch.float32),
+                    label=label,
                 )
                 x_t = x_t + unit_velocity / steps
                 x_ts.append(x_t)

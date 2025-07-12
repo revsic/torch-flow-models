@@ -44,7 +44,9 @@ class DistributionMatchingDistillation(
         ) = None
         self.sampler = MultistepConsistencySampler()
 
-    def forward(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Estimate the `x_0` from the given `x_t`.
         Args:
             x_t: [FloatLike; [B, ...]], sample from the trajectory at time `t`.
@@ -52,7 +54,10 @@ class DistributionMatchingDistillation(
         Returns:
             estimated `x_0`.
         """
-        return self.generator.forward(x_t, t)
+        kwargs = {}
+        if label is not None:
+            kwargs["label"] = label
+        return self.generator.forward(x_t, t, **kwargs)
 
     def predict(
         self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
@@ -64,7 +69,7 @@ class DistributionMatchingDistillation(
         Returns:
             estimated `x_0`.
         """
-        return self.forward(x_t, t)
+        return self.forward(x_t, t, label=label)
 
     def noise(
         self, sample: torch.Tensor, t: torch.Tensor, prior: torch.Tensor | None = None
@@ -104,6 +109,7 @@ class DistributionMatchingDistillation(
         batch_size: int,
         prior: torch.Tensor,
         samples: torch.Tensor | None = None,
+        label: torch.Tensor | None = None,
         verbose: Callable[[range], Iterable] | None = None,
         _sampling_steps: int | None = None,
         _lambda: float = 0.25,
@@ -125,11 +131,12 @@ class DistributionMatchingDistillation(
         if samples is None:
             with torch.inference_mode():
                 samples, _ = teacher.sample(
-                    prior, steps=_sampling_steps, verbose=verbose
+                    prior, label, steps=_sampling_steps, verbose=verbose
                 )
         # inherit teacher's forward process
         self._noiser = teacher.noise
 
+        _label, kwargs = None, {}
         g_losses: list[float] = []
         s_losses: list[float] = []
         for i in verbose(range(training_steps)):
@@ -137,15 +144,17 @@ class DistributionMatchingDistillation(
             # [B, ...], [B, ...]
             x_0, z = samples[indices], prior[indices]
             # [B, ...]
-            x = self.generator.forward(z)
+            if label is not None:
+                kwargs["label"] = _label = label[indices]
+            x = self.generator.forward(z, **kwargs)
             # [B]
             t = torch.rand(batch_size)
             # [B, ...]
             x_t = teacher.noise(x, t, prior=None)
             # [B, ...]
             with torch.inference_mode():
-                s_real = teacher.score(x_t, t)
-                s_fake = self.fake_score.score(x_t, t)
+                s_real = teacher.score(x_t, t, label=_label)
+                s_fake = self.fake_score.score(x_t, t, label=_label)
             # update generator
             _dkl = (x * (s_fake - s_real).detach()).mean()
             _reg = (x - x_0).square().mean()
@@ -156,9 +165,9 @@ class DistributionMatchingDistillation(
 
             with torch.inference_mode():
                 # [B, ...]
-                x = self.generator.forward(z)
+                x = self.generator.forward(z, **kwargs)
             # []
-            s_loss = self.fake_score.loss(x.detach())
+            s_loss = self.fake_score.loss(x.detach(), label=_label)
             # update fake score
             s_loss.backward()
             optim_s.step()
@@ -201,6 +210,7 @@ class DistributionMatchingDistillation(
         batch_size: int,
         samples: torch.Tensor,
         prior: torch.Tensor,
+        label: torch.Tensor | None = None,
         h: _SUPPORTING_DIV | _WEIGHTING_H = "reverse-kl",
         verbose: Callable[[range], Iterable] | None = None,
         _score_updates: int = 5,
@@ -232,18 +242,22 @@ class DistributionMatchingDistillation(
         assert callable(h) or h in self.SUPPORTING_DIV
         _h = h if callable(h) else lambda d: self.SUPPORTING_DIV[h](self._compute_r(d))
 
+        _label, kwargs = None, {}
         g_losses: list[float] = []
         s_losses: list[float] = []
         d_losses: list[float] = []
         for i in verbose(range(training_steps)):
             # two time-scale update rule
             for _ in range(_score_updates):
-                z = prior[torch.randint(0, len(prior), (batch_size,))]
+                indices = torch.randint(0, len(prior), (batch_size,))
+                z = prior[indices]
+                if label is not None:
+                    kwargs["label"] = _label = label[indices]
                 with torch.inference_mode():
                     # [B, ...]
-                    x = self.generator.forward(z)
+                    x = self.generator.forward(z, **kwargs)
                 # []
-                s_loss = self.fake_score.loss(x.detach())
+                s_loss = self.fake_score.loss(x.detach(), label=_label)
                 # update fake score
                 s_loss.backward()
                 optim_s.step()
@@ -255,16 +269,18 @@ class DistributionMatchingDistillation(
             indices = torch.randint(0, len(prior), (batch_size,))
             # [B, ...], [B, ...]
             x_0, z = samples[indices], prior[indices]
+            if label is not None:
+                kwargs["label"] = _label = label[indices]
             with torch.inference_mode():
                 # [B, ...]
-                x = self.generator.forward(z)
+                x = self.generator.forward(z, **kwargs)
                 # [B, ...]
                 real_t = teacher.noise(x_0, _r_t := _time_sampler(batch_size).to(x_0))
                 fake_t = teacher.noise(x, _f_t := _time_sampler(batch_size).to(x))
             # log D(x_t, t) = discriminator.forward(x_t, t)
             d_loss = (
-                F.softplus(discriminator.forward(real_t, _r_t)).mean()
-                + F.softplus(-discriminator.forward(fake_t, _f_t)).mean()
+                F.softplus(discriminator.forward(real_t, _r_t, **kwargs)).mean()
+                + F.softplus(-discriminator.forward(fake_t, _f_t, **kwargs)).mean()
             ) * 1e-2
             d_loss.backward()
             optim_d.step()
@@ -276,18 +292,20 @@ class DistributionMatchingDistillation(
             indices = torch.randint(0, len(prior), (batch_size,))
             # [B, ...], [B, ...]
             x_0, z = samples[indices], prior[indices]
+            if label is not None:
+                kwargs["label"] = _label = label[indices]
             # [B, ...]
-            x = self.generator.forward(z)
+            x = self.generator.forward(z, **kwargs)
             # [B]
             t = _time_sampler(batch_size).to(x)
             # [B, ...]
             x_t = teacher.noise(x, t, prior=None)
             # [B, ...]
             with torch.inference_mode():
-                s_real = teacher.score(x_t, t)
-                s_fake = self.fake_score.score(x_t, t)
+                s_real = teacher.score(x_t, t, label=_label)
+                s_fake = self.fake_score.score(x_t, t, label=_label)
             # [B, ...]
-            d = discriminator.forward(x_t, t)
+            d = discriminator.forward(x_t, t, **kwargs)
             # update generator
             match = _h(d) * (s_fake - s_real)
             _dkl = (x * match.detach()).mean() / (x_0 - x).abs().mean().detach()

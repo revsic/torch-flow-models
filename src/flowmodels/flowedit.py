@@ -1,22 +1,8 @@
-from typing import Callable, Iterable, Protocol
+from typing import Callable, Iterable
 
 import torch
 
-
-class ConditionalVelocitySupports(Protocol):
-
-    def velocity(
-        self, x_t: torch.Tensor, t: torch.Tensor, c: torch.Tensor | None = None
-    ) -> torch.Tensor:
-        """Estimate the conditional velocity of the given samples, `x_t`.
-        Args:
-            x_t: [FloatLike; [B, ...]], the given samples, `x_t`.
-            t: [FloatLike; [B]], the current timesteps, in range[0, 1].
-            c: [FloatLike; [B, ...]], the conditional vectors.
-        Returns:
-            [FloatLike; [B, ...]], the estimated velocity.
-        """
-        ...
+from flowmodels.basis import VelocitySupports
 
 
 class FlowEditSolver:
@@ -26,7 +12,7 @@ class FlowEditSolver:
 
     def solve(
         self,
-        model: ConditionalVelocitySupports,
+        model: VelocitySupports,
         init: torch.Tensor,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,

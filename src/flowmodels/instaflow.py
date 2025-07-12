@@ -79,11 +79,14 @@ class InstaFlow(RectifiedFlow):
         t = torch.zeros(batch_size, dtype=sample.dtype, device=sample.device)
 
         losses = []
+        _label = None
         self.train()
         for i in verbose(range(training_steps)):
             indices = torch.randint(0, len(sample), (batch_size,))
+            if label is not None:
+                _label = label[indices]
             # [B, ...]
-            estim = prior[indices] + self.forward(prior[indices], t)
+            estim = prior[indices] + self.forward(prior[indices], t, _label)
             loss = loss_fn(sample[indices], estim)
             # update
             optim.zero_grad()

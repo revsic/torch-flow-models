@@ -29,7 +29,11 @@ class FlowMapMatching(nn.Module, ODEModel, PredictionSupports, SamplingSupports)
         self.teacher = teacher
 
     def forward(
-        self, x_t: torch.Tensor, t: torch.Tensor, r: torch.Tensor
+        self,
+        x_t: torch.Tensor,
+        t: torch.Tensor,
+        r: torch.Tensor,
+        label: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Estimate the mean velocity from the given `t` to `r`.
         Args:
@@ -39,7 +43,10 @@ class FlowMapMatching(nn.Module, ODEModel, PredictionSupports, SamplingSupports)
         Returns:
             estimated mean velocity from the given sample `x_t`.
         """
-        return self.F0(x_t, t, t - r)
+        kwargs = {}
+        if label is not None:
+            kwargs["label"] = label
+        return self.F0(x_t, t, t - r, **kwargs)
 
     def velocity(
         self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
@@ -52,7 +59,7 @@ class FlowMapMatching(nn.Module, ODEModel, PredictionSupports, SamplingSupports)
             [FloatLike; [B, ...]], the estimated velocity.
         """
         # targeting the origin point
-        return self.forward(x_t, t, torch.zeros_like(t))
+        return self.forward(x_t, t, torch.zeros_like(t), label=label)
 
     def predict(
         self,
@@ -75,7 +82,7 @@ class FlowMapMatching(nn.Module, ODEModel, PredictionSupports, SamplingSupports)
             s = torch.zeros_like(t)
         bt = t.view([bsize] + [1] * (x_t.dim() - 1))
         bs = s.view([bsize] + [1] * (x_t.dim() - 1))
-        return x_t - (bt - bs) * self.forward(x_t, t, s)
+        return x_t - (bt - bs) * self.forward(x_t, t, s, label=label)
 
     def loss(
         self,
@@ -118,7 +125,7 @@ class FlowMapMatching(nn.Module, ODEModel, PredictionSupports, SamplingSupports)
             case "LMD":
                 assert self.teacher is not None
                 estim, jvp = jvp_fn(
-                    lambda s: self.predict(x_t, t, s=s),
+                    lambda s: self.predict(x_t, t, s=s, label=label),
                     (s,),  # pyright: ignore
                     (torch.ones_like(s),),
                 )
@@ -126,7 +133,7 @@ class FlowMapMatching(nn.Module, ODEModel, PredictionSupports, SamplingSupports)
             case "EMD":
                 assert self.teacher is not None
                 _, jvp = jvp_fn(
-                    lambda x_t, t, s: self.predict(x_t, t, s=s),
+                    lambda x_t, t, s: self.predict(x_t, t, s=s, label=label),
                     (x_t, t, s),  # pyright: ignore
                     (
                         self.teacher.velocity(x_t, t),
@@ -137,9 +144,9 @@ class FlowMapMatching(nn.Module, ODEModel, PredictionSupports, SamplingSupports)
                 loss = jvp.square().mean()
             case "FMM":
                 v_t = prior - sample
-                x_s = self.predict(x_t, t, s)
+                x_s = self.predict(x_t, t, label, s)
                 estim, jvp = jvp_fn(
-                    lambda t: self.predict(x_s, s, s=t),
+                    lambda t: self.predict(x_s, s, s=t, label=label),
                     (t,),  # pyright: ignore
                     (torch.ones_like(t),),
                 )
@@ -171,7 +178,7 @@ class FlowMapMatching(nn.Module, ODEModel, PredictionSupports, SamplingSupports)
         with torch.inference_mode():
             for i in verbose(range(steps, 0, -1)):
                 t = torch.full((bsize,), i / steps, dtype=torch.float32)
-                velocity = self.forward(x_t, t, t - 1 / steps)
+                velocity = self.forward(x_t, t, t - 1 / steps, label=label)
                 x_t = x_t - velocity / steps
                 x_ts.append(x_t)
 

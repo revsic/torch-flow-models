@@ -14,8 +14,19 @@ class _AccelerationWrapper(nn.Module):
         self.backbone = backbone
         self.dim = dim
 
-    def forward(self, x: torch.Tensor, v: torch.Tensor, t: torch.Tensor):
-        return self.backbone(self.proj.forward(torch.cat([x, v], dim=self.dim)), t)
+    def forward(
+        self,
+        x: torch.Tensor,
+        v: torch.Tensor,
+        t: torch.Tensor,
+        label: torch.Tensor | None = None,
+    ):
+        kwargs = {}
+        if label is not None:
+            kwargs["label"] = label
+        return self.backbone(
+            self.proj.forward(torch.cat([x, v], dim=self.dim)), t, **kwargs
+        )
 
 
 class ConstantAccelerationFlow(nn.Module, VelocitySupports, SamplingSupports):
@@ -27,7 +38,9 @@ class ConstantAccelerationFlow(nn.Module, VelocitySupports, SamplingSupports):
         self.a_t = _AccelerationWrapper(channels, deepcopy(module))
         self.h = h
 
-    def forward(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Estimate the causalized velocity from the given x_t; t.
         Args:
             x_t: [FloatLike; [B, ...]], the given noised sample, `x_t`.
@@ -35,10 +48,13 @@ class ConstantAccelerationFlow(nn.Module, VelocitySupports, SamplingSupports):
         Returns:
             estimated velocity from the given sample `x_t`.
         """
+        kwargs = {}
+        if label is not None:
+            kwargs["label"] = label
         (bsize,) = t.shape
-        v0 = self.v_0.forward(x_t, t)
+        v0 = self.v_0.forward(x_t, t, **kwargs)
         return v0 + (t.view([bsize] + [1] * (x_t.dim() - 1))) * self.a_t.forward(
-            x_t, v0, t
+            x_t, v0, t, **kwargs
         )
 
     def velocity(
@@ -85,19 +101,17 @@ class ConstantAccelerationFlow(nn.Module, VelocitySupports, SamplingSupports):
         # [B, ...]
         x_t = (1 - t.square()) * prior + t.square() * sample + (t - t.square()) * v_0
         # [B, ...]
-        v_0_estim = self.v_0.forward(x_t, backup)
+        kwargs = {}
+        if label is not None:
+            kwargs["label"] = label
+        v_0_estim = self.v_0.forward(x_t, backup, **kwargs)
         # []
         v_loss = (v_0 - v_0_estim).square().mean()
+        # [B, ...]
+        target = 2 * (sample - prior) - 2 * v_0_estim.detach()
+        estim = self.a_t.forward(x_t, v_0_estim.detach(), backup, **kwargs)
         # []
-        a_loss = (
-            (
-                2 * (sample - prior)
-                - 2 * v_0_estim.detach()  # causalized acceleration
-                - self.a_t.forward(x_t, v_0_estim.detach(), backup)
-            )
-            .square()
-            .mean()
-        )
+        a_loss = (target - estim).square().mean()
         return v_loss, a_loss
 
     DEFAULT_STEPS = 100
@@ -113,14 +127,17 @@ class ConstantAccelerationFlow(nn.Module, VelocitySupports, SamplingSupports):
         steps = steps or self.DEFAULT_STEPS
         if verbose is None:
             verbose = lambda x: x
+        kwargs = {}
+        if label is not None:
+            kwargs["label"] = label
         # loop
         x_t, x_ts = prior, []
         bsize, *_ = x_t.shape
         with torch.inference_mode():
             for i in verbose(range(steps)):
                 t = torch.full((bsize,), i / steps, dtype=torch.float32)
-                v_0 = self.v_0.forward(x_t, t)
-                a_t = self.a_t.forward(x_t, v_0, t)
+                v_0 = self.v_0.forward(x_t, t, **kwargs)
+                a_t = self.a_t.forward(x_t, v_0, t, **kwargs)
                 x_t = x_t + v_0 / steps + (2 * i + 1) / (2 * steps) * a_t / steps
                 x_ts.append(x_t)
         return x_t, x_ts

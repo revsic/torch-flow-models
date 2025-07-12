@@ -80,7 +80,9 @@ class ConsistencyModel(
         self.scheduler = scheduler
         self.sampler = MultistepConsistencySampler()
 
-    def forward(self, x_t: torch.Tensor, t: torch.Tensor):
+    def forward(
+        self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
+    ):
         """Estimate the `x_0` from the given `x_t`.
         Args:
             x_t: [FloatLike; [B, ...]], sample from the trajectory at time `t`.
@@ -98,7 +100,10 @@ class ConsistencyModel(
         cskip = cskip.view([bsize] + [1] * (x_t.dim() - 1))
         cout = cout.view([bsize] + [1] * (x_t.dim() - 1))
         # [B, ...]
-        return cskip * x_t + cout * self.module(x_t, t)
+        kwargs = {}
+        if label is not None:
+            kwargs["label"] = label
+        return cskip * x_t + cout * self.module(x_t, t, **kwargs)
 
     def predict(
         self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
@@ -110,7 +115,7 @@ class ConsistencyModel(
         Returns:
             the predicted sample points `x_0`.
         """
-        return self.forward(x_t, (t * self.scheduler.T).long())
+        return self.forward(x_t, (t * self.scheduler.T).long(), label=label)
 
     def noise(
         self,
@@ -187,9 +192,13 @@ class ConsistencyModel(
         ema = EMASupports(self)
 
         losses: list[float] = []
+        _label = None
         for i in verbose(range(training_steps)):
+            indices = torch.randint(0, len(sample), (batch_size,))
+            if label is not None:
+                _label = label[indices]
             # [B, ...]
-            x_0 = sample[torch.randint(0, len(sample), (batch_size,))]
+            x_0 = sample[indices]
             # [B, ...]
             eps = torch.randn_like(x_0)
             # [B]
@@ -207,11 +216,12 @@ class ConsistencyModel(
                     v_t,
                     v_td,
                     self.scheduler.vp,
+                    _label,
                 )
                 # [B, ...]
-                x_0_ema = ema.module.forward(x_td, t - 1)
+                x_0_ema = ema.module.forward(x_td, t - 1, label=_label)
             # [B, ...]
-            x_0_estim = self.forward(x_t, t)
+            x_0_estim = self.forward(x_t, t, label=_label)
             # []
             loss = loss_fn(x_0_estim, x_0_ema.clone().detach())
             # update

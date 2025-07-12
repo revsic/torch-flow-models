@@ -34,7 +34,11 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         return {**self._debug_from_loss, **getattr(self.F0, "_debug_purpose", {})}
 
     def forward(
-        self, x_t: torch.Tensor, t: torch.Tensor, r: torch.Tensor
+        self,
+        x_t: torch.Tensor,
+        t: torch.Tensor,
+        r: torch.Tensor,
+        label: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Estimate the mean velocity from the given `t` to `r`.
         Args:
@@ -44,7 +48,10 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         Returns:
             estimated mean velocity from the given sample `x_t`.
         """
-        return self.velocity_estim(x_t, t, t - r)
+        kwargs = {}
+        if label is not None:
+            kwargs["label"] = label
+        return self.velocity_estim(x_t, t, t - r, **kwargs)
 
     def velocity(
         self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
@@ -57,7 +64,7 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
             [FloatLike; [B, ...]], the estimated velocity.
         """
         # targeting the origin point
-        return self.forward(x_t, t, torch.zeros_like(t))
+        return self.forward(x_t, t, torch.zeros_like(t), label=label)
 
     def predict(
         self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
@@ -120,7 +127,7 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
             torch.func.jvp, recursive=False  # pyright: ignore
         )
         u, dudt = jvp_fn(
-            self.forward,
+            lambda x, t, r: self.forward(x, t, r, label=label),
             (x_t, t, r),  # pyright: ignore
             (v_t, torch.ones_like(t), torch.zeros_like(r)),
         )
@@ -158,7 +165,7 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         with torch.inference_mode():
             for i in verbose(range(steps, 0, -1)):
                 t = torch.full((bsize,), i / steps, dtype=torch.float32)
-                velocity = self.forward(x_t, t, t - 1 / steps)
+                velocity = self.forward(x_t, t, t - 1 / steps, label=label)
                 x_t = x_t - velocity / steps
                 x_ts.append(x_t)
 

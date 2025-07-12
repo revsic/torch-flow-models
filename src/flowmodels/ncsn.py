@@ -53,7 +53,9 @@ class NCSN(nn.Module, ScoreModel, ForwardProcessSupports, SamplingSupports):
         if isinstance(scheduler, AnnealedLangevinDynamicsSamplerSupports):
             self.sampler = AnnealedLangevinDynamicsSampler(scheduler)
 
-    def forward(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Estimate the gradient of the log-likelihood(Stein Score) from the given x_t; t.
         Args:
             x_t: [FloatLike; [B, ...]] the given noised sample, `x_t`.
@@ -61,7 +63,10 @@ class NCSN(nn.Module, ScoreModel, ForwardProcessSupports, SamplingSupports):
         Returns:
             estimated score from the given sample `x_t`.
         """
-        return self.score_estim(x_t, t)
+        kwargs = {}
+        if label is not None:
+            kwargs["label"] = label
+        return self.score_estim(x_t, t, **kwargs)
 
     def score(
         self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
@@ -76,7 +81,7 @@ class NCSN(nn.Module, ScoreModel, ForwardProcessSupports, SamplingSupports):
         # discretize in range[0, T]
         t = (t * self.scheduler.T).long()
         # [B, ...]
-        return self.forward(x_t, t)
+        return self.forward(x_t, t, label=label)
 
     def loss(
         self,
@@ -105,7 +110,7 @@ class NCSN(nn.Module, ScoreModel, ForwardProcessSupports, SamplingSupports):
         t = ((t * self.scheduler.T).long() + 1).clamp_max(self.scheduler.T)
         # compute objective
         noised = self.noise(sample, t, prior=prior)
-        estim = self.forward(noised, t)
+        estim = self.forward(noised, t, label=label)
         # [T], zero-based
         sigma = self.scheduler.var().sqrt().to(estim)
         # [B, ...]

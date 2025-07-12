@@ -147,7 +147,8 @@ class RectifiedFlow(nn.Module, ODEModel, SamplingSupports):
         for i in verbose(range(training_steps)):
             indices = torch.randint(0, len(sample), (batch_size,))
             t = timesteps() if callable(timesteps) else timesteps
-            loss = self.loss(sample[indices], t=t, prior=prior[indices], label=label)
+            _label = label[indices] if label is not None else None
+            loss = self.loss(sample[indices], t=t, prior=prior[indices], label=_label)
             # update
             optim.zero_grad()
             loss.backward()

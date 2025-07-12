@@ -41,7 +41,11 @@ class AlignYourFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         return {**self._debug_from_loss, **getattr(self.F0, "_debug_purpose", {})}
 
     def forward(
-        self, x_t: torch.Tensor, t: torch.Tensor, r: torch.Tensor
+        self,
+        x_t: torch.Tensor,
+        t: torch.Tensor,
+        r: torch.Tensor,
+        label: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Estimate the mean velocity from the given `t` to `r`.
         Args:
@@ -51,7 +55,10 @@ class AlignYourFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         Returns:
             estimated mean velocity from the given sample `x_t`.
         """
-        return self.F0(x_t, t, t - r)
+        kwargs = {}
+        if label is not None:
+            kwargs["label"] = label
+        return self.F0(x_t, t, t - r, **kwargs)
 
     def velocity(
         self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
@@ -64,7 +71,7 @@ class AlignYourFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
             [FloatLike; [B, ...]], the estimated velocity.
         """
         # targeting the origin point
-        return self.forward(x_t, t, torch.zeros_like(t))
+        return self.forward(x_t, t, torch.zeros_like(t), label=label)
 
     def predict(
         self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
@@ -122,13 +129,13 @@ class AlignYourFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
             v_t = prior - sample
         else:
             with torch.no_grad():
-                v_t = self.teacher.velocity(x_t, t)
+                v_t = self.teacher.velocity(x_t, t, label=label)
         # [B, ...], [B, ...]
         jvp_fn = torch.compiler.disable(
             torch.func.jvp, recursive=False  # pyright: ignore
         )
         F, jvp = jvp_fn(
-            self.forward,
+            lambda x, t, s: self.forward(x, t, s, label=label),
             (x_t, t, s),  # pyright: ignore
             (v_t, torch.ones_like(t), torch.zeros_like(s)),
         )
@@ -179,7 +186,7 @@ class AlignYourFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         with torch.inference_mode():
             for i in verbose(range(steps, 0, -1)):
                 t = torch.full((bsize,), i / steps, dtype=torch.float32)
-                velocity = self.forward(x_t, t, t - 1 / steps)
+                velocity = self.forward(x_t, t, t - 1 / steps, label=label)
                 x_t = x_t - velocity / steps
                 x_ts.append(x_t)
 

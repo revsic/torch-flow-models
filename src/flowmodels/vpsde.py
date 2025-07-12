@@ -60,7 +60,9 @@ class VPSDE(nn.Module, ScoreModel, ForwardProcessSupports, SamplingSupports):
         if isinstance(scheduler, VPSDEAncestralSamplerSupports):
             self.sampler = VPSDEAncestralSampler(scheduler)
 
-    def forward(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Estimate the gradient of the log-likelihood(Stein Score) from the given x_t; t.
         Args:
             x_t: [FloatLike; [B, ...]], the given noised sample, `x_t`.
@@ -68,7 +70,10 @@ class VPSDE(nn.Module, ScoreModel, ForwardProcessSupports, SamplingSupports):
         Returns:
             [FloatLike; [B, ...]], estimated score from the given sample `x_t`.
         """
-        return self.score_estim(x_t, t)
+        kwargs = {}
+        if label is not None:
+            kwargs["label"] = label
+        return self.score_estim(x_t, t, **kwargs)
 
     def score(
         self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
@@ -80,7 +85,7 @@ class VPSDE(nn.Module, ScoreModel, ForwardProcessSupports, SamplingSupports):
         Returns:
             [FloatLike; [B, ...]], the estimated stein scores.
         """
-        return self.forward(x_t, t)
+        return self.forward(x_t, t, label=label)
 
     def loss(
         self,
@@ -107,7 +112,7 @@ class VPSDE(nn.Module, ScoreModel, ForwardProcessSupports, SamplingSupports):
             prior = torch.randn_like(sample)
         # compute objective
         noised = self.noise(sample, t, prior=prior)
-        estim = self.forward(noised, t)
+        estim = self.forward(noised, t, label=label)
         # [B], zero-based
         sigma = self.scheduler.var(t).clamp(1e-10, 1.0).sqrt().to(estim)
         # [B, ...]
@@ -219,7 +224,7 @@ class VPSDEAncestralSampler(Sampler):
                     / steps
                 )
                 # [B, ...]
-                score = model.score(x_t, torch.full((bsize,), t / steps))
+                score = model.score(x_t, torch.full((bsize,), t / steps), label=label)
                 # [B, ...]
                 x_t = (
                     (2 - (1 - b).sqrt()).to(x_t) * x_t

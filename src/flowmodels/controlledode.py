@@ -12,6 +12,9 @@ class ControlledODESolver(ODESolver):
 
     DEFAULT_STEPS = 10
 
+    def __init__(self):
+        self.reference = None
+
     def solve(
         self,
         model: VelocitySupports,
@@ -35,6 +38,8 @@ class ControlledODESolver(ODESolver):
             [FloatLike; [B, ...]], the solution.
             `steps` x [FloatLike; [B, ...]], trajectories.
         """
+        if reference is None:
+            reference = self.reference[: len(init)]  # pyright: ignore
         assert (
             reference is not None
         ), "reference sample should be given to contorl ODE trajectories."

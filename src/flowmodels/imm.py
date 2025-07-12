@@ -168,6 +168,7 @@ class InductivMomentMatching(
         x_t: torch.Tensor,
         t: torch.Tensor,
         s: torch.Tensor | None = None,
+        label: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Estimate the `x_s` from the given `x_t`.
         Args:
@@ -180,11 +181,14 @@ class InductivMomentMatching(
         # shortcut
         (bsize,) = t.shape
         rdim = [bsize] + [1] * (x_t.dim() - 1)
+        kwargs = {}
+        if label is not None:
+            kwargs["label"] = label
         # [B, ...]
         c = self.scheduler.coeff_edm(t)
         # [B, ...]
         x_0 = c.skip.view(rdim) * x_t + c.out.view(rdim) * self.F0.forward(
-            c.in_.view(rdim) * x_t, c.noise
+            c.in_.view(rdim) * x_t, c.noise, **kwargs
         )
         if s is None:
             return x_0
@@ -200,7 +204,7 @@ class InductivMomentMatching(
         Returns:
             the predicted sample points `x_0`.
         """
-        return self.forward(x_t, t)
+        return self.forward(x_t, t, label=label)
 
     def loss(
         self,
@@ -236,9 +240,15 @@ class InductivMomentMatching(
         # [B, ...], [B, ...]
         x_t, xp_t = self.noise(sample, t.repeat(2), prior).chunk(2)
         x_r, xp_r = self.noise(sample, r.repeat(2), prior).chunk(2)
-        y_st, yp_st = self.forward(x_t, t, s), self.forward(xp_t, t, s)
+        if label is not None:
+            l, lp = label.chunk(2)
+        else:
+            l, lp = None, None
+        y_st = self.forward(x_t, t, s, label=l)
+        yp_st = self.forward(xp_t, t, s, label=lp)
         with torch.no_grad():
-            y_sr, yp_sr = self.forward(x_r, r, s), self.forward(xp_r, r, s)
+            y_sr = self.forward(x_r, r, s, label=l)
+            yp_sr = self.forward(xp_r, r, s, label=lp)
         # [B]
         losses = self.scheduler.w(t) * (
             self._laplace_kernel(y_st, yp_st, t)

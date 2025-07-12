@@ -26,7 +26,9 @@ class RectificationSupports(
 ):
     scheduler: ContinuousScheduler | Scheduler
 
-    def forward(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Estimate the noise, score, or data sample from the given x_t; t.
         Args:
             x_t: [FloatLike; [B, ...]], the given noised samples, `x_t`.
@@ -49,9 +51,11 @@ class RecitifedDiffusion(
         self.model = model
         self.sampler = MultistepConsistencySampler()
 
-    def forward(self, x_t: torch.Tensor, t: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Forward to `self.model.forward`."""
-        return self.model.forward(x_t, t)
+        return self.model.forward(x_t, t, label=label)
 
     def score(
         self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
@@ -150,10 +154,13 @@ class RecitifedDiffusion(
             verbose = lambda x: x
 
         losses = []
+        _label = None
         self.train()
         for i in verbose(range(training_steps)):
             indices = torch.randint(0, len(sample), (batch_size,))
-            loss = self.loss(sample[indices], prior=prior[indices])
+            if label is not None:
+                _label = label[indices]
+            loss = self.loss(sample[indices], prior=prior[indices], label=_label)
             # update
             optim.zero_grad()
             loss.backward()
@@ -189,37 +196,41 @@ class RecitifedDiffusion(
         # EMA purpose
         ema = copy.deepcopy(self)
         # ([FloatLike; [B, ...]], [torch.long; [B]]) -> [FloatLike, [B, ...]]
-        denoiser: Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
+        denoiser: Callable[
+            [torch.Tensor, torch.Tensor, torch.Tensor | None], torch.Tensor
+        ]
         if self.model.scheduler.vp:
             # [T]
             beta = sampler._compute_vp_beta(1 - var)
             # variance-preserving denoiser
-            denoiser = lambda x_t, t: sampler._denoise_vp(
-                ema, x_t, t, beta, label=label
-            )
+            denoiser = lambda x_t, t, l: sampler._denoise_vp(ema, x_t, t, beta, label=l)
         else:
             # variance-exploding denoiser
-            denoiser = lambda x_t, t: sampler._denoise_ve(ema, x_t, t, var, label=label)
+            denoiser = lambda x_t, t, l: sampler._denoise_ve(ema, x_t, t, var, label=l)
 
         if verbose is None:
             verbose = lambda x: x
 
         losses = []
+        _label = None
         self.train()
         for i in verbose(range(training_steps)):
+            indices = torch.randint(0, len(sample), (batch_size,))
             # [B, ...]
-            x = sample[torch.randint(0, len(sample), (batch_size,))]
+            x = sample[indices]
             # [B]
             t = torch.randint(1, T + 1, (batch_size,))
             # [B, ...]
             x_t = self.model.noise(x, t / T)
+            if label is not None:
+                _label = label[indices]
             with torch.inference_mode():
                 # [B, ...]
-                x_prev = denoiser(x_t, t)
+                x_prev = denoiser(x_t, t, _label)
                 # [B, ...]
-                ema_prev = ema.forward(x_prev, (t - 1) / T)
+                ema_prev = ema.forward(x_prev, (t - 1) / T, label=_label)
             # [], TODO: replace `self.forward(x_prev, ...)` to EMA
-            loss = loss_fn(self.forward(x_t, t / T), ema_prev.clone().detach())
+            loss = loss_fn(self.forward(x_t, t / T, _label), ema_prev.clone().detach())
             # update
             optim.zero_grad()
             loss.backward()
