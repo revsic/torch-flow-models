@@ -114,7 +114,7 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
             )
             t, r = torch.maximum(t, r), torch.minimum(t, r)
             # masking for instantaneous velocity learning (case; r = t)
-            mask = torch.arange(batch_size) < int(batch_size * self.r_mask)
+            mask = torch.arange(batch_size, device=device) < int(batch_size * self.r_mask)
             r = torch.where(mask, t, r)
         # [B, ...]
         bt = t.view([batch_size] + [1] * (sample.dim() - 1))
