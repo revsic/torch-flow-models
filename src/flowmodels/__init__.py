@@ -1,5 +1,6 @@
 from flowmodels.alignyourflow import AlignYourFlow
 from flowmodels.caf import ConstantAccelerationFlow
+from flowmodels.closedform import VelocityField
 from flowmodels.cm import (
     ConsistencyModel,
     ConsistencyModelScheduler,
