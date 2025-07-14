@@ -9,6 +9,7 @@ import safetensors
 from safetensors.torch import load_model
 
 from fid import compute_fid_with_model
+from flowmodels.rf import RectifiedFlow
 from flowmodels.sct import ScaledContinuousCM, ScaledContinuousCMScheduler, TrigFlow
 from ddpmpp import DDPMpp, ModelConfig
 from trainer import _LossDDPWrapper
@@ -32,22 +33,40 @@ _DEFAULT_DDPMPP = ModelConfig(
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--frame", choices=["sct", "trigflow"], default="sct")
+    parser.add_argument("--frame", choices=["sct", "trigflow", "rf"], default="sct")
     parser.add_argument("--ckpt", required=True)
     parser.add_argument("--steps", type=int, default=None)
     parser.add_argument("--ref", default="./cifar10-32x32.npz")
     parser.add_argument("--samples", type=int, default=50000)
     parser.add_argument("--dump", default="/data0/images")
     parser.add_argument("--n-classes", type=int, default=None)
+    parser.add_argument("--config", default=None)
+    parser.add_argument("--cfg-scale", type=float, default=None)
+    parser.add_argument("--uncond", type=int, default=None)
     args = parser.parse_args()
 
-    backbone = DDPMpp(_DEFAULT_DDPMPP)
+    model_config: ModelConfig
+    if args.config is not None:
+        with open(args.config) as f:
+            config = json.load(f)
+        if "model" in config:
+            config = config["model"]
+        model_config = ModelConfig(**config)
+        # overwrite class-conditions
+        if args.n_classes is None:
+            args.n_classes = model_config.n_classes
+    else:
+        model_config = _DEFAULT_DDPMPP
+
+    backbone = DDPMpp(model_config)
 
     match args.frame:
         case "sct":
             model = ScaledContinuousCM(backbone, ScaledContinuousCMScheduler())
         case "trigflow":
             model = TrigFlow(backbone, ScaledContinuousCMScheduler())
+        case "rf":
+            model = RectifiedFlow(backbone)
         case _:
             assert False, "invalid framework"
 
@@ -66,7 +85,7 @@ def main():
         (parent, date, steps, head), *_ = found
         dump = (
             Path(args.dump)
-            / f"{Path(parent).stem}.{date}.ckpt{steps}.steps{args.steps}.{head}"
+            / f"{Path(parent).stem}.{date}.ckpt{steps}.steps{args.steps}.{head}.{uuid4().hex}"
         )
 
     _enable_loss_ddp_wrapper = False
@@ -91,12 +110,20 @@ def main():
                 "ckpt": ckpt.absolute().as_posix(),
                 "dump": dump.absolute().as_posix(),
                 "steps": args.steps,
+                "num_samples": args.samples,
                 "ref": args.ref,
+                "n_classes": args.n_classes,
+                "cfg_scale": args.cfg_scale,
+                "uncond": args.uncond,
             },
             f,
             indent=2,
             ensure_ascii=False,
         )
+
+    uncond = None
+    if args.uncond is not None:
+        uncond = torch.tensor(args.uncond, device="cuda:0")
 
     dump.mkdir(parents=True, exist_ok=True)
     with torch.no_grad():
@@ -112,6 +139,8 @@ def main():
             scaler=lambda x: ((x - x.amin()) / (x.amax() - x.amin()) * 255).to(
                 torch.uint8
             ),
+            cfg_scale=args.cfg_scale,
+            uncond=uncond,
             _save_images=dump,
         )
 

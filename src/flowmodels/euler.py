@@ -17,6 +17,8 @@ class VanillaEulerSolver(ODESolver):
         label: torch.Tensor | None = None,
         steps: int | None = None,
         verbose: Callable[[range], Iterable] | None = None,
+        cfg_scale: float | None = None,
+        uncond: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """Solve the ODE defined in the range of t; [0, 1].
         Args:
@@ -32,16 +34,21 @@ class VanillaEulerSolver(ODESolver):
         steps = steps or self.DEFAULT_STEPS
         if verbose is None:
             verbose = lambda x: x
+        # sanity check
+        assert cfg_scale is None or (label is not None and uncond is not None)
         # loop
         x_t, x_ts = init, []
         bsize, *_ = x_t.shape
+        if cfg_scale:
+            rdim = [1 for _ in range(uncond.dim())]
+            uncond = uncond[None].repeat([bsize] + rdim)
         with torch.inference_mode():
             for i in verbose(range(steps)):
-                velocity = model.velocity(
-                    x_t,
-                    torch.full((bsize,), i / steps, dtype=torch.float32),
-                    label=label,
-                )
+                t = torch.full((bsize,), i / steps, dtype=torch.float32)
+                velocity = model.velocity(x_t, t, label=label)
+                if cfg_scale:
+                    uncond_vel = model.velocity(x_t, t, label=uncond)
+                    velocity = uncond_vel + cfg_scale * (velocity - uncond_vel)
                 x_t = x_t + velocity / steps
                 x_ts.append(x_t)
         return x_t, x_ts

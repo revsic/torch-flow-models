@@ -93,6 +93,9 @@ def compute_fid_with_model(
     scaler: Callable[[torch.Tensor], torch.Tensor] = (
         lambda x: ((x + 1) * 127.5).to(torch.uint8)
     ),
+    # unofficial supports
+    cfg_scale: float | None = None,
+    uncond: torch.Tensor | None = None,
     _save_images: Path | None = None,
 ) -> float:
 
@@ -102,6 +105,10 @@ def compute_fid_with_model(
 
         def __iter__(self):
             images, _id = [], 0
+            kwargs = {}
+            if cfg_scale is not None:
+                kwargs["cfg_scale"] = cfg_scale
+                kwargs["uncond"] = uncond
             generator = torch.Generator(device).manual_seed(0)
             for _ in range(num_samples):
                 if not images:
@@ -123,6 +130,7 @@ def compute_fid_with_model(
                         label=labels,
                         steps=steps,
                         verbose=lambda x: tqdm(x, leave=False),
+                        **kwargs,
                     )
                     images = [*scaler(sampled)]
                     if _save_images:

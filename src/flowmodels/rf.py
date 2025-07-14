@@ -85,13 +85,15 @@ class RectifiedFlow(nn.Module, ODEModel, SamplingSupports):
         label: torch.Tensor | None = None,
         steps: int | None = 1,
         verbose: Callable[[range], Iterable] | None = None,
+        cfg_scale: float | None = None,
+        uncond: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """Transfer the samples from the prior distribution to the trained distribution, using vanilla Euler method.
         Args:
             prior: [FloatLike; [B, ...]], samples from the source distribution, `X_0`.
             steps: the number of the steps.
         """
-        return self.solver.solve(self, prior, label, steps, verbose)
+        return self.solver.solve(self, prior, label, steps, verbose, cfg_scale, uncond)
 
     def distillation(
         self,
