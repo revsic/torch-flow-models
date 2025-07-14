@@ -47,7 +47,7 @@ def reproduce_rectifiedflow():
             total=400000,
             label_dropout=0.1,
             uncond_label=10,
-            fid_steps=100,
+            fid_steps=18,
         ),
     )
     # model definition

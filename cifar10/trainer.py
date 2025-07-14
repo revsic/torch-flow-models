@@ -338,6 +338,7 @@ class Cifar10Trainer:
                             device=_device,
                         ),
                         _labels,
+                        steps=self.config.fid_steps,
                         verbose=lambda x: tqdm(x, leave=False),
                     )
                     for i, img in enumerate(sample):
