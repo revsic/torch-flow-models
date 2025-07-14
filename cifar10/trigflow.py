@@ -35,7 +35,7 @@ def reproduce_trigflow_cifar10():
         ),
         train=TrainConfig(
             n_gpus=2,
-            n_grad_accum=2,
+            n_grad_accum=1,
             mixed_precision="no",
             batch_size=1024,
             n_classes=10 + 1,

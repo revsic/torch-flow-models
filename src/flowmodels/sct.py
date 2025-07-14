@@ -363,6 +363,8 @@ class TrigFlow(ScaledContinuousCM):
         rho: float = 7,
         dtype: torch.dtype = torch.float64,
         correction: bool = True,
+        cfg_scale: float | None = None,
+        uncond: torch.Tensor | None = None,
     ) -> tuple[torch.Tensor, list[torch.Tensor]]:
         """EDM Sampler, reference git+NVlabs/edm/generate.py."""
         batch_size, *_ = prior.shape
@@ -371,9 +373,20 @@ class TrigFlow(ScaledContinuousCM):
         sigma_d = self.scheduler.sigma_d
         if verbose is None:
             verbose = lambda x: x
+        # sanity check
+        if cfg_scale is not None:
+            assert label is not None and uncond is not None
+            rdim = [1 for _ in range(uncond.dim())]
+            uncond = uncond[None].repeat([batch_size] + rdim)
         # shortcut
         if steps <= 1:
-            x = self.predict(prior, torch.full((batch_size,), np.pi * 0.5), label=label)
+            t = torch.full((batch_size,), np.pi * 0.5)
+            x = self.predict(prior, t, label=label)
+            # since the prediction is linear combination of x_t and F0
+            # , sample level CFG equals to the velocity level CFG
+            if cfg_scale is not None:
+                u = self.predict(prior, t, label=uncond)
+                x = u + cfg_scale * (x - u)
             return x, [x]
         # sample parameter for moving device
         p = next(self.parameters())
@@ -403,6 +416,11 @@ class TrigFlow(ScaledContinuousCM):
             d_cur = sigma_d * self.F0.forward(
                 x_hat.to(p) / sigma_d, _t.to(p), **kwargs
             ).to(dtype)
+            if cfg_scale is not None:
+                u = sigma_d * self.F0.forward(
+                    x_hat.to(p) / sigma_d, _t.to(p), label=uncond
+                ).to(dtype)
+                d_cur = u + cfg_scale * (d_cur - u)
             x = torch.cos(t_hat - t_next) * x_hat - torch.sin(t_hat - t_next) * d_cur
             # 2nd-order midpoint correction
             if i < steps - 1 and correction:
@@ -412,6 +430,11 @@ class TrigFlow(ScaledContinuousCM):
                 d_prime = sigma_d * self.F0.forward(
                     x.to(p) / sigma_d, _t.to(p), **kwargs
                 ).to(dtype)
+                if cfg_scale is not None:
+                    u = sigma_d * self.F0.forward(
+                        x.to(p) / sigma_d, _t.to(p), label=uncond
+                    ).to(dtype)
+                    d_prime = u + cfg_scale * (d_prime - u)
                 x = torch.cos(t_hat - t_next) * x_hat - torch.sin(t_hat - t_next) * (
                     0.5 * d_cur + 0.5 * d_prime
                 )
