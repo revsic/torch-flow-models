@@ -30,18 +30,18 @@ class VanillaEulerSolver(ODESolver):
             [FloatLike; [B, ...]], the solution.
             `steps` x [FloatLike; [B, ...]], trajectories.
         """
+        bsize, *_ = init.shape
         # assign default values
         steps = steps or self.DEFAULT_STEPS
         if verbose is None:
             verbose = lambda x: x
         # sanity check
-        assert cfg_scale is None or (label is not None and uncond is not None)
-        # loop
-        x_t, x_ts = init, []
-        bsize, *_ = x_t.shape
-        if cfg_scale:
+        if cfg_scale is not None:
+            assert label is not None and uncond is not None
             rdim = [1 for _ in range(uncond.dim())]
             uncond = uncond[None].repeat([bsize] + rdim)
+        # loop
+        x_t, x_ts = init, []
         with torch.inference_mode():
             for i in verbose(range(steps)):
                 t = torch.full((bsize,), i / steps, dtype=torch.float32)
