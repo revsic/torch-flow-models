@@ -68,10 +68,6 @@ def reproduce_sct_cifar10():
         _approx_jvp=config.approx_jvp,
         _dt=config.dt,
     )
-    load_model(
-        _LossDDPWrapper(model),
-        "./test.workspace/trigflow-cifar10-cond/2025.07.11KST10:39:03/ckpt/3264/model.safetensors",
-    )
 
     # timestamp
     workspace = Path(f"./test.workspace/sct-cifar10-cond/{config.train.stamp}")
