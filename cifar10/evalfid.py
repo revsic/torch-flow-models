@@ -79,14 +79,16 @@ def main():
         ckpt.absolute().as_posix(),
     )
     dump: Path
+    uid = uuid4().hex
     if not found:
-        dump = Path(args.dump) / f"{uuid4().hex}"
+        dump = Path(args.dump) / f"{uid}"
     else:
         (parent, date, steps, head), *_ = found
         dump = (
             Path(args.dump)
-            / f"{Path(parent).stem}.{date}.ckpt{steps}.steps{args.steps}.{head}.{uuid4().hex}"
+            / f"{Path(parent).stem}.{date}.ckpt{steps}.steps{args.steps}.{head}.{uid}"
         )
+    dump.mkdir(parents=True)
 
     _enable_loss_ddp_wrapper = False
     with safetensors.safe_open(args.ckpt, framework="pt") as f:
@@ -103,7 +105,7 @@ def main():
     model.to("cuda:0")
     model.eval()
 
-    with open(f"./test.{dump.stem}.json", "w") as f:
+    with open(f"./test.{dump.stem}.{uid}.json", "w") as f:
         json.dump(
             log := {
                 "frame": args.frame,
@@ -120,6 +122,8 @@ def main():
             indent=2,
             ensure_ascii=False,
         )
+    with open(dump / "test.json", "w") as f:
+        json.dump(log, f, indent=2, ensure_ascii=False)
 
     uncond = None
     if args.uncond is not None:
@@ -136,16 +140,16 @@ def main():
             inception_batch_size=1024,
             device="cuda:0",
             cache=args.ref,
-            scaler=lambda x: ((x - x.amin()) / (x.amax() - x.amin()) * 255).to(
-                torch.uint8
-            ),
+            scaler=lambda x: ((x + 1) * 127.5 + 0.5).clamp(0.0, 255.0).to(torch.uint8),
             cfg_scale=args.cfg_scale,
             uncond=uncond,
             _save_images=dump,
         )
 
     log["fid"] = fid
-    with open(f"./test.{dump.stem}.json", "w") as f:
+    with open(f"./test.{dump.stem}.{uid}.json", "w") as f:
+        json.dump(log, f, indent=2, ensure_ascii=False)
+    with open(dump / "test.json", "w") as f:
         json.dump(log, f, indent=2, ensure_ascii=False)
 
     print(log)
