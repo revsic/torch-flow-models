@@ -1,6 +1,6 @@
 import json
 import traceback
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from safetensors.torch import load_model
@@ -40,8 +40,8 @@ def reproduce_sct_cifar10():
             n_classes=10 + 1,  # +1 for uncond
         ),
         train=TrainConfig(
-            n_gpus=2,
-            n_grad_accum=1,
+            n_gpus=1,
+            n_grad_accum=3,
             mixed_precision="no",
             batch_size=768,
             n_classes=10 + 1,
@@ -70,7 +70,7 @@ def reproduce_sct_cifar10():
     )
     load_model(
         _LossDDPWrapper(model),
-        "./test.workspace/trigflow-cifar10/2025.07.07KST13:27:38/ckpt/408/model.safetensors",
+        "./test.workspace/trigflow-cifar10-cond/2025.07.11KST10:39:03/ckpt/3264/model.safetensors",
     )
 
     # timestamp
