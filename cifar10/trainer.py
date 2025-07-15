@@ -366,12 +366,12 @@ class Cifar10Trainer:
                     model.train()
                     self.test_log.add_scalar("metric/fid10k", fid, step)
 
-                _path = self.workspace / "ckpt" / str(epoch)
+                _path = self.workspace / "ckpt" / str(step)
                 accelerator.save_state(_path.as_posix())
                 if ema:
                     save_model(ema.module, (_path / "_ema.safetensors").as_posix())
 
-        _path = self.workspace / "ckpt" / str(epoch)
+        _path = self.workspace / "ckpt" / str(step)
         accelerator.save_state(_path.as_posix())
         if ema:
             save_model(ema.module, (_path / "_ema.safetensors").as_posix())
