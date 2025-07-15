@@ -235,14 +235,11 @@ class ScaledContinuousCM(
         )
         # [B]
         mse = (estim - F - normalized_tangent).square().mean(dim=rdim)
-        # [B], adaptive weighting
-        logvar = self._ada_weight.forward(t)
         # [B], different with
-        loss = mse * logvar.exp() - logvar
+        loss = mse
         with torch.no_grad():
             self._debug_from_loss = {
                 "sct/mse": mse.mean().item(),
-                "sct/logvar": logvar.mean().item(),
                 "sct/tangent-norm": _norm.mean().item(),
             }
         # []
