@@ -254,6 +254,7 @@ class ModelConfig:
     pe_scale: float = 1.0
     use_shift_scale_norm: bool = False
     use_double_norm: bool = False
+    use_r: bool = False
     n_classes: int | None = None
     _force_norm_32bit: bool = False
 
@@ -263,19 +264,22 @@ class DDPMpp(nn.Module):
         super().__init__()
         self.nf = config.nf
         self.pe_scale = config.pe_scale
+        self.pe_channels = config.nf
+        if config.use_r:
+            self.pe_channels *= 2
 
         self.proj_label = None
         if config.n_classes:
-            self.proj_label = nn.Embedding(config.n_classes, config.nf)
+            self.proj_label = nn.Embedding(config.n_classes, self.pe_channels)
 
         _temb_channels = config.nf * 4
         self.proj_temb = nn.Sequential(
-            nn.Linear(config.nf, _temb_channels),
+            nn.Linear(self.pe_channels, _temb_channels),
             nn.SiLU(),
             nn.Linear(_temb_channels, _temb_channels),
         )
         with torch.no_grad():
-            self.proj_temb[0].weight.copy_(default_init(_temb_channels, config.nf))
+            self.proj_temb[0].weight.copy_(default_init(_temb_channels, self.pe_channels))
             self.proj_temb[0].bias.zero_()
             self.proj_temb[2].weight.copy_(default_init(_temb_channels, _temb_channels))
             self.proj_temb[2].bias.zero_()
@@ -447,15 +451,19 @@ class DDPMpp(nn.Module):
         self,
         x: torch.Tensor,
         time_cond: torch.Tensor,
+        r: torch.Tensor | None = None,
         label: torch.Tensor | None = None,
     ) -> torch.Tensor:
         assert (label is None) == (self.proj_label is None)
         # [B, E]
         temb = get_timestep_embedding(time_cond.to(x), self.nf, scale=self.pe_scale)
+        if r is not None:
+            remb = get_timestep_embedding(r.to(x), self.nf, scale=self.pe_scale)
+            temb = torch.cat([temb, remb], dim=-1)
         if label is not None:
             temb = temb + self.proj_label.forward(label)
         # [B, E x 4]
-        temb = self.proj_temb(temb)
+        temb = self.proj_temb.forward(temb)
 
         h = self.proj_in.forward(x)
         hs = [h]

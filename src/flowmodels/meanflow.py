@@ -19,12 +19,14 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         p_mean: float = -0.4,
         p_std: float = 1.0,
         r_mask: float = 0.75,
+        p: float = 1.0,
     ):
         super().__init__()
         self.velocity_estim = module
         self.p_mean = p_mean
         self.p_std = p_std
         self.r_mask = r_mask
+        self.p = p
         # debug purpose
         self._debug_from_loss = {}
 
@@ -139,7 +141,7 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         rdim = [i + 1 for i in range(u.dim() - 1)]
         loss = (u - u_tgt.detach()).square().mean(dim=rdim)
         # [B]
-        adp_wt = (loss + 0.01).detach()
+        adp_wt = (loss + 0.01).detach() ** self.p
         with torch.no_grad():
             self._debug_from_loss = {
                 "meanflow/mse": loss.mean().item(),
