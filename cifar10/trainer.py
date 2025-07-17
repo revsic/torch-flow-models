@@ -284,7 +284,7 @@ class Cifar10Trainer:
                         self.train_log.add_scalar("loss", loss, step)
 
                         for k, v in (
-                            getattr(self.model, "_debug_purpose", None) or {}
+                            getattr(self.model, "_debug_purpose", lambda: {})()
                         ).items():
                             self.train_log.add_scalar(f"debug-pupose:{k}", v, step)
 

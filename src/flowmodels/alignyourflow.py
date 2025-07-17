@@ -36,7 +36,6 @@ class AlignYourFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         self._debug_from_loss = {}
 
     # debug purpose
-    @property
     def _debug_purpose(self):
         return {**self._debug_from_loss, **getattr(self.F0, "_debug_purpose", {})}
 

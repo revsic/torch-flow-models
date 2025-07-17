@@ -31,9 +31,8 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         self._debug_from_loss = {}
 
     # debug purpose
-    @property
     def _debug_purpose(self):
-        return {**self._debug_from_loss, **getattr(self.F0, "_debug_purpose", {})}
+        return {**self._debug_from_loss, **getattr(self.velocity_estim, "_debug_purpose", {})}
 
     def forward(
         self,
@@ -145,6 +144,7 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         with torch.no_grad():
             self._debug_from_loss = {
                 "meanflow/mse": loss.mean().item(),
+                "meanflow/adp_wt": adp_wt.mean().item(),
             }
         return (loss / adp_wt).mean()
 
