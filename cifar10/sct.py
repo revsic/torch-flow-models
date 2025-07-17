@@ -12,9 +12,11 @@ from trainer import Cifar10Trainer, TrainConfig, _LossDDPWrapper
 
 @dataclass
 class Config:
+    sigma_d: float = 0.5
     p_mean: float = -1.0
     p_std: float = 1.4
     tangent_warmup: int = 10000
+    warmup_max: float = 1.0
     approx_jvp: bool = True
     dt: float = 0.005
 
@@ -63,8 +65,13 @@ def reproduce_sct_cifar10():
     backbone = DDPMpp(config.model)
     model = ScaledContinuousCM(
         backbone,
-        ScaledContinuousCMScheduler(),
+        ScaledContinuousCMScheduler(
+            sigma_d=config.sigma_d,
+            p_mean=config.p_mean,
+            p_std=config.p_std,
+        ),
         tangent_warmup=config.tangent_warmup,
+        _warmup_max=config.warmup_max,
         _approx_jvp=config.approx_jvp,
         _dt=config.dt,
     )

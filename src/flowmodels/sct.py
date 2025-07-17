@@ -64,6 +64,7 @@ class ScaledContinuousCM(
         module: nn.Module,
         scheduler: ScaledContinuousCMScheduler,
         tangent_warmup: int | None = None,
+        _warmup_max: float = 1.0,
         _ada_weight_size: int = 128,
         _approx_jvp: bool = True,
         _dt: float = 0.005,
@@ -72,6 +73,7 @@ class ScaledContinuousCM(
         self.F0 = module
         self.scheduler = scheduler
         self._tangent_warmup, self._steps = tangent_warmup, 0
+        self._warmup_max = _warmup_max
         self._ada_weight = _AdaptiveWeights(_ada_weight_size)
         # debug purpose
         self._debug_from_loss = {}
@@ -219,7 +221,7 @@ class ScaledContinuousCM(
         # warmup scaler
         r = 1.0
         if self._tangent_warmup:
-            r = min(self._steps / self._tangent_warmup, 1.0)
+            r = min(self._steps / self._tangent_warmup, self._warmup_max)
             self._steps += 1
         # stop grad
         F = estim.detach()
