@@ -231,21 +231,14 @@ class ScaledContinuousCM(
         )
         # reducing dimension
         rdim = [i + 1 for i in range(x_t.dim() - 1)]
-        # normalized tangent
-        normalized_tangent = cos_mul_grad / (
-            _norm := cos_mul_grad.norm(p=2, dim=rdim, keepdim=True) + 0.1
-        )
         # [B]
-        mse = (estim - F - normalized_tangent).square().mean(dim=rdim)
-        # [B], adaptive weighting
-        logvar = self._ada_weight.forward(t)
+        mse = (estim - F - cos_mul_grad).square().mean(dim=rdim)
         # [B], different with
-        loss = mse * logvar.exp() - logvar
+        loss = mse / (mse + 0.01).detach()
         with torch.no_grad():
             self._debug_from_loss = {
                 "sct/mse": mse.mean().item(),
-                "sct/logvar": logvar.mean().item(),
-                "sct/tangent-norm": _norm.mean().item(),
+                "sct/tangent-norm": cos_mul_grad.norm(p=2, dim=rdim).mean().item(),
             }
         # []
         return loss.mean()
