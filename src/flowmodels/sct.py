@@ -81,7 +81,6 @@ class ScaledContinuousCM(
         self._dt = _dt
 
     # debug purpose
-    @property
     def _debug_purpose(self):
         return {**self._debug_from_loss, **getattr(self.F0, "_debug_purpose", {})}
 
