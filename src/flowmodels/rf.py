@@ -31,7 +31,7 @@ class RectifiedFlow(nn.Module, ODEModel, SamplingSupports):
         kwargs = {}
         if label is not None:
             kwargs["label"] = label
-        return self.velocity_estim(x_t, t, **kwargs)
+        return self.velocity_estim(x_t, t * 2.68 - 1.59, **kwargs)
 
     def velocity(
         self, x_t: torch.Tensor, t: torch.Tensor, label: torch.Tensor | None = None
