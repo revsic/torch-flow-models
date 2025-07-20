@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 from safetensors.torch import load_file
 
-from ddpmpp import DDPMpp, ModelConfig
+from nvidiaedm import SongUNet
 from flowmodels.basis import ODEModel, SamplingSupports
 from flowmodels.euler import VanillaEulerSolver
 from flowmodels.sct import _AdaptiveWeights
@@ -199,31 +199,15 @@ class Config:
     approx_jvp: bool = True
     dt: float = 0.005
 
-    model: ModelConfig = field(default_factory=ModelConfig)  # pyright: ignore
     train: TrainConfig = field(default_factory=TrainConfig)  # pyright: ignore
 
 
 def reproduce_linear_sct_cifar10():
     config = Config(
-        model=ModelConfig(
-            resolution=32,
-            in_channels=3,
-            nf=128,
-            ch_mult=[1, 2, 2, 2],
-            attn_resolutions=[16],
-            num_res_blocks=4,
-            init_scale=0.0,
-            skip_rescale=True,
-            dropout=0.20,
-            pe_scale=0.02,
-            use_shift_scale_norm=True,
-            use_double_norm=True,
-            n_classes=10 + 1,  # +1 for uncond
-        ),
         train=TrainConfig(
             n_gpus=1,
-            n_grad_accum=8,
-            mixed_precision="no",
+            n_grad_accum=6,
+            mixed_precision="bf16",
             batch_size=768,
             n_classes=10 + 1,
             lr=0.0001,
@@ -241,7 +225,13 @@ def reproduce_linear_sct_cifar10():
         ),
     )
     # model definition
-    backbone = DDPMpp(config.model)
+    backbone = SongUNet(num_classes=10)
+    checkpoint = torch.load(
+        "/data2/shared/2025.06.19KST22:32:57-ehr0/checkpoints/0320000.pt"
+    )
+    backbone.load_state_dict(checkpoint["model"])
+    del checkpoint
+
     model = LinearScaledConsistencyModel(
         backbone,
         p_mean=config.p_mean,
@@ -250,15 +240,6 @@ def reproduce_linear_sct_cifar10():
         _approx_jvp=config.approx_jvp,
         _dt=config.dt,
     )
-    ckpt = {
-        k.replace("velocity_estim", "F0"): v
-        for k, v in load_file(
-            "./test.workspace/rf-cifar10-cond/2025.07.10KST22:00:02/ckpt/1020/model.safetensors"
-        ).items()
-    }
-    ckpt.update(model._ada_weight.state_dict(prefix="model._ada_weight."))
-    _LossDDPWrapper(model).load_state_dict(ckpt)
-    del ckpt
 
     # timestamp
     workspace = Path(f"./test.workspace/linear-sct-cifar10-cond/{config.train.stamp}")
