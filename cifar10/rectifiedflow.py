@@ -5,34 +5,17 @@ from pathlib import Path
 
 import torch
 
-from ddpmpp import DDPMpp, ModelConfig
+from nvidiaedm import SongUNet
 from flowmodels import RectifiedFlow
 from trainer import Cifar10Trainer, TrainConfig
 
 
 @dataclass
 class Config:
-    model: ModelConfig = field(default_factory=ModelConfig)  # pyright: ignore
     train: TrainConfig = field(default_factory=TrainConfig)  # pyright: ignore
-
 
 def reproduce_rectifiedflow():
     config = Config(
-        model=ModelConfig(
-            resolution=32,
-            in_channels=3,
-            nf=128,
-            ch_mult=[1, 2, 2, 2],
-            attn_resolutions=[16],
-            num_res_blocks=4,
-            init_scale=0.0,
-            skip_rescale=True,
-            dropout=0.15,
-            pe_scale=1.0,  # 16 in official repo
-            use_shift_scale_norm=False,
-            use_double_norm=False,
-            n_classes=10 + 1,  # +1 for uncond
-        ),
         train=TrainConfig(
             n_gpus=1,
             n_grad_accum=2,
@@ -53,7 +36,7 @@ def reproduce_rectifiedflow():
         ),
     )
     # model definition
-    backbone = DDPMpp(config.model)
+    backbone = SongUNet(num_classes=10)
     model = RectifiedFlow(backbone)
 
     # timestamp
