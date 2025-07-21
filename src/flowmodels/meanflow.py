@@ -20,6 +20,8 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         p_std: float = 1.0,
         r_mask: float = 0.75,
         p: float = 1.0,
+        _approx_jvp: bool = True,
+        _dt: float = 0.005,
     ):
         super().__init__()
         self.velocity_estim = module
@@ -29,6 +31,8 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         self.p = p
         # debug purpose
         self._debug_from_loss = {}
+        self._approx_jvp = _approx_jvp
+        self._dt = _dt
 
     # debug purpose
     def _debug_purpose(self):
@@ -125,15 +129,25 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         # [B, ...]
         x_t = (1 - bt) * sample + bt * prior
         v_t = prior - sample
-        # jvp for meanflow identity
-        jvp_fn = torch.compiler.disable(
-            torch.func.jvp, recursive=False  # pyright: ignore
-        )
-        u, dudt = jvp_fn(
-            lambda x, t, r: self.forward(x, t, r, label=label),
-            (x_t, t, r),  # pyright: ignore
-            (v_t, torch.ones_like(t), torch.zeros_like(r)),
-        )
+        if self._approx_jvp:
+            # shortcut
+            dt = self._dt
+            fwd = lambda t, bt: self.forward(
+                (1 - bt) * sample + bt * prior, t, r, label=label
+            )
+            # approximation w/o JVP
+            dudt = (fwd(t + dt, bt + dt) - fwd(t - dt, bt - dt)) / (2 * dt)
+            u = self.forward(x_t, t, r, label)
+        else:
+            jvp_fn = torch.compiler.disable(
+                torch.func.jvp, recursive=False  # pyright: ignore
+            )
+            # [B, ...], [B, ...], jvp = dF/dt
+            u, dudt = jvp_fn(
+                lambda x, t, r: self.forward(x, t, r, label=label),
+                (x_t, t, r),  # pyright: ignore
+                (v_t, torch.ones_like(t), torch.zeros_like(r)),
+            )
         # [B, ...]
         u_tgt = v_t - (bt - br) * dudt
         # [B]
