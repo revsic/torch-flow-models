@@ -14,7 +14,6 @@ from trainer import Cifar10Trainer, TrainConfig
 class Config:
     p_mean: float = -2.0
     p_std: float = 2.0
-    r_mask: float = 0.75
     p: float = 1.0
     approx_jvp: bool = True
     dt: float = 0.005
@@ -65,7 +64,6 @@ def reproduce_sct_cifar10():
         backbone,
         config.p_mean,
         config.p_std,
-        config.r_mask,
         config.p,
         config.approx_jvp,
         config.dt
