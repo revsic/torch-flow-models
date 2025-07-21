@@ -121,7 +121,7 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         br = r.view([batch_size] + [1] * (sample.dim() - 1))
         # [B, ...]
         x_t = (1 - bt) * sample + bt * prior
-        v_t = self.forward(x_t, t, t, label=label)
+        v_t = prior - sample
         if self._approx_jvp:
             # shortcut
             dt = self._dt
@@ -145,7 +145,7 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         # [B]
         rdim = [i + 1 for i in range(u.dim() - 1)]
         meanid = (u - u_tgt.detach()).square().mean(dim=rdim)
-        v_loss =  (v_t - (sample - prior)).square().mean(dim=rdim)
+        v_loss =  (self.forward(x_t, t, t, label=label) - v_t).square().mean(dim=rdim)
         # [B]
         loss = meanid + v_loss
         adp_wt = (loss + 0.01).detach() ** self.p
