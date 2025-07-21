@@ -15,6 +15,9 @@ class Config:
     p_mean: float = -2.0
     p_std: float = 2.0
     r_mask: float = 0.75
+    p: float = 1.0
+    approx_jvp: bool = True
+    dt: float = 0.005
 
     model: ModelConfig = field(default_factory=ModelConfig)  # pyright: ignore
     train: TrainConfig = field(default_factory=TrainConfig)  # pyright: ignore
@@ -32,18 +35,18 @@ def reproduce_sct_cifar10():
             init_scale=0.0,
             skip_rescale=True,
             dropout=0.20,
-            # pe_scale=0.02,
-            # use_shift_scale_norm=True,
-            # use_double_norm=True,
+            pe_scale=0.02,
+            use_shift_scale_norm=True,
+            use_double_norm=True,
             use_r=True,
-            # n_classes=10 + 1,  # +1 for uncond
+            n_classes=10 + 1,  # +1 for uncond
         ),
         train=TrainConfig(
             n_gpus=1,
-            n_grad_accum=20,
+            n_grad_accum=12,
             mixed_precision="no",
             batch_size=1024,
-            # n_classes=10 + 1,
+            n_classes=10 + 1,
             lr=0.0006,
             beta1=0.9,
             beta2=0.999,
@@ -51,8 +54,8 @@ def reproduce_sct_cifar10():
             weight_decay=0.0,
             total=800000,
             half_life_ema=17328 * 1024,  # 0.99996 ** 17328 = 0.5
-            # label_dropout=0.1,
-            # uncond_label=10,
+            label_dropout=0.1,
+            uncond_label=10,
             fid_steps=2,
         ),
     )
@@ -63,6 +66,9 @@ def reproduce_sct_cifar10():
         config.p_mean,
         config.p_std,
         config.r_mask,
+        config.p,
+        config.approx_jvp,
+        config.dt
     )
 
     ## TODO: Augmentation
