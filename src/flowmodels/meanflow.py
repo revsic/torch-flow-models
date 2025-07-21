@@ -18,7 +18,6 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         module: nn.Module,
         p_mean: float = -0.4,
         p_std: float = 1.0,
-        r_mask: float = 0.75,
         p: float = 1.0,
         _approx_jvp: bool = True,
         _dt: float = 0.005,
@@ -27,7 +26,6 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         self.velocity_estim = module
         self.p_mean = p_mean
         self.p_std = p_std
-        self.r_mask = r_mask
         self.p = p
         # debug purpose
         self._debug_from_loss = {}
@@ -118,25 +116,19 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
                 torch.randn(batch_size, device=device) * self.p_std + self.p_mean
             )
             t, r = torch.maximum(t, r), torch.minimum(t, r)
-            # masking for instantaneous velocity learning (case; r = t)
-            mask = torch.arange(batch_size, device=device) < int(
-                batch_size * self.r_mask
-            )
-            r = torch.where(mask, t, r)
         # [B, ...]
         bt = t.view([batch_size] + [1] * (sample.dim() - 1))
         br = r.view([batch_size] + [1] * (sample.dim() - 1))
         # [B, ...]
         x_t = (1 - bt) * sample + bt * prior
-        v_t = prior - sample
+        v_t = self.forward(x_t, t, t, label=label)
         if self._approx_jvp:
             # shortcut
             dt = self._dt
-            fwd = lambda t, bt: self.forward(
-                (1 - bt) * sample + bt * prior, t, r, label=label
-            )
-            # approximation w/o JVP
-            dudt = (fwd(t + dt, bt + dt) - fwd(t - dt, bt - dt)) / (2 * dt)
+            dudt = (
+                self.forward(x_t + dt * v_t, t + dt, r, label=label)
+                - self.forward(x_t - dt * v_t, t - dt, r, label=label)
+            ) / (2 * dt)
             u = self.forward(x_t, t, r, label)
         else:
             jvp_fn = torch.compiler.disable(
@@ -152,12 +144,15 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         u_tgt = v_t - (bt - br) * dudt
         # [B]
         rdim = [i + 1 for i in range(u.dim() - 1)]
-        loss = (u - u_tgt.detach()).square().mean(dim=rdim)
+        meanid = (u - u_tgt.detach()).square().mean(dim=rdim)
+        v_loss =  (v_t - (sample - prior)).square().mean(dim=rdim)
         # [B]
+        loss = meanid + v_loss
         adp_wt = (loss + 0.01).detach() ** self.p
         with torch.no_grad():
             self._debug_from_loss = {
-                "meanflow/mse": loss.mean().item(),
+                "meanflow/mse": meanid.mean().item(),
+                "meanflow/v_loss": v_loss.mean().item(),
                 "meanflow/adp_wt": adp_wt.mean().item(),
             }
         return (loss / adp_wt).mean()
