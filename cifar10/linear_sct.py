@@ -1,3 +1,4 @@
+import copy
 import json
 import traceback
 from dataclasses import asdict, dataclass, field
@@ -33,6 +34,7 @@ class LinearScaledConsistencyModel(
     ):
         super().__init__()
         self.F0 = module
+        self._teacher = copy.deepcopy(module).requires_grad_(False).eval()
         self.p_mean = p_mean
         self.p_std = p_std
         self._tangent_warmup, self._steps = tangent_warmup, 0
@@ -116,18 +118,18 @@ class LinearScaledConsistencyModel(
         # [B, ...]
         x_t = _t * sample + (1 - _t) * prior
         # [B, ...]
-        v_t = sample - prior
         kwargs = {}
         if label is not None:
             kwargs["label"] = label
+        with torch.no_grad():
+            v_t = self._teacher.forward(x_t, t, **kwargs)
         if self._approx_jvp:
             # shortcut
             dt = self._dt
-            fwd = lambda t, bt: self.F0.forward(
-                bt * sample + (1 - bt) * prior, t, **kwargs
-            )
-            # approximation w/o JVP
-            jvp = (fwd(t + dt, _t + dt) - fwd(t - dt, _t - dt)) / (2 * dt)
+            jvp = (
+                self.F0.forward(x_t + dt * v_t, t + dt, **kwargs)
+                - self.F0.forward(x_t - dt * v_t, t - dt, **kwargs)
+            ) / (2 * dt)
             estim = self.F0.forward(x_t, t, **kwargs)
         else:
             jvp_fn = torch.compiler.disable(
@@ -256,6 +258,10 @@ def reproduce_linear_sct_cifar10():
             "./test.workspace/rf-cifar10-cond/2025.07.10KST22:00:02/ckpt/1020/model.safetensors"
         ).items()
     }
+    ckpt.update({
+        k.replace("F0", "_teacher"): v
+        for k, v in ckpt.items()
+    })
     ckpt.update(model._ada_weight.state_dict(prefix="model._ada_weight."))
     _LossDDPWrapper(model).load_state_dict(ckpt)
     del ckpt
