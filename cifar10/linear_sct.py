@@ -7,13 +7,13 @@ from typing import Callable, Iterable
 import numpy as np
 import torch
 import torch.nn as nn
-from safetensors.torch import load_file
 
-from ddpmpp import DDPMpp, ModelConfig
 from flowmodels.basis import ODEModel, SamplingSupports
 from flowmodels.euler import VanillaEulerSolver
 from flowmodels.sct import _AdaptiveWeights
-from trainer import Cifar10Trainer, TrainConfig, _LossDDPWrapper
+from models.lightningdit import LightningDiT_XL_1
+from tokenizer.vavae import VA_VAE
+from trainer import Cifar10Trainer, TrainConfig
 
 
 class LinearScaledConsistencyModel(
@@ -58,11 +58,8 @@ class LinearScaledConsistencyModel(
             [FloatLike; [B, ...]], estimated sample from the given `x_t`.
         """
         (bsize,) = t.shape
-        kwargs = {}
-        if label is not None:
-            kwargs["label"] = label
-        return x_t + (1 - t.view([bsize] + [1] * (x_t.dim() - 1))) * self.F0.forward(
-            x_t, t, **kwargs
+        return x_t + (1 - t.view([bsize] + [1] * (x_t.dim() - 1))) * self.velocity(
+            x_t, t, label=label
         )
 
     def velocity(
@@ -77,8 +74,8 @@ class LinearScaledConsistencyModel(
         """
         kwargs = {}
         if label is not None:
-            kwargs["label"] = label
-        return self.F0.forward(x_t, t, **kwargs)
+            kwargs["y"] = label.to(x_t.device)
+        return -self.F0.forward(x_t, 1 - t.to(x_t.device), **kwargs)
 
     def loss(
         self,
@@ -116,25 +113,22 @@ class LinearScaledConsistencyModel(
         x_t = _t * sample + (1 - _t) * prior
         # [B, ...]
         v_t = sample - prior
-        kwargs = {}
-        if label is not None:
-            kwargs["label"] = label
         if self._approx_jvp:
             # shortcut
             dt = self._dt
-            fwd = lambda t, bt: self.F0.forward(
-                bt * sample + (1 - bt) * prior, t, **kwargs
+            fwd = lambda t, bt: self.velocity(
+                bt * sample + (1 - bt) * prior, t, label=label
             )
             # approximation w/o JVP
             jvp = (fwd(t + dt, _t + dt) - fwd(t - dt, _t - dt)) / (2 * dt)
-            estim = self.F0.forward(x_t, t, **kwargs)
+            estim = self.velocity(x_t, t, label=label)
         else:
             jvp_fn = torch.compiler.disable(
                 torch.func.jvp, recursive=False  # pyright: ignore
             )
             # [B, ...], [B, ...], jvp = dF/dt
             estim, jvp, *_ = jvp_fn(
-                self.F0.forward,
+                lambda x, t: self.velocity(x, t, label=label),
                 (x_t, t),  # pyright: ignore
                 (v_t, torch.ones_like(t)),
             )
@@ -190,6 +184,25 @@ class LinearScaledConsistencyModel(
         )
 
 
+class VAVAEWrapper:
+    def __init__(self):
+        self.vavae = VA_VAE("./tokenizer/configs/vavae_f16d32.yaml")
+        
+        stats = torch.load("/data2/shared/LightningDit/latents_stats.pt")
+        self.latent_mean = stats["mean"].squeeze(dim=0)
+        self.latent_std = stats["std"].squeeze(dim=0)
+        assert self.latent_mean.dim() == self.latent_std.dim() == 3
+
+    @torch.no_grad()
+    def postproc(self, z: torch.Tensor) -> torch.Tensor:
+        z = z * self.latent_std.to(z) + self.latent_mean.to(z)
+        if (require_squeeze := z.dim() == 3):
+            z = z[None]
+        img = (self.vavae.model.decode(z).clamp(-1.0, 1.0) + 1) * 0.5
+        if require_squeeze:
+            img = img.squeeze(dim=0)
+        return img
+
 @dataclass
 class Config:
     p_mean: float = -1.0
@@ -198,36 +211,20 @@ class Config:
     approx_jvp: bool = True
     dt: float = 0.005
 
-    model: ModelConfig = field(default_factory=ModelConfig)  # pyright: ignore
     train: TrainConfig = field(default_factory=TrainConfig)  # pyright: ignore
 
 
 def reproduce_linear_sct_cifar10():
     config = Config(
-        model=ModelConfig(
-            resolution=32,
-            in_channels=3,
-            nf=128,
-            ch_mult=[1, 2, 2, 2],
-            attn_resolutions=[16],
-            num_res_blocks=4,
-            init_scale=0.0,
-            skip_rescale=True,
-            dropout=0.20,
-            pe_scale=0.02,
-            use_shift_scale_norm=True,
-            use_double_norm=True,
-            n_classes=10 + 1,  # +1 for uncond
-        ),
         train=TrainConfig(
             n_gpus=1,
-            n_grad_accum=8,
-            mixed_precision="no",
+            n_grad_accum=32,
+            mixed_precision="bf16",
             batch_size=768,
-            n_classes=10 + 1,
-            lr=0.0001,
+            n_classes=1000 + 1,
+            lr=0.0002,
             beta1=0.9,
-            beta2=0.99,
+            beta2=0.95,
             eps=1e-8,
             weight_decay=0.0,
             clip_grad_norm=0.1,
@@ -235,12 +232,31 @@ def reproduce_linear_sct_cifar10():
             total=400000,
             half_life_ema=500000,
             label_dropout=0.1,
-            uncond_label=10,
+            uncond_label=1000,
             fid_steps=2,
         ),
     )
     # model definition
-    backbone = DDPMpp(config.model)
+    backbone = LightningDiT_XL_1(
+        input_size=256 // 16,
+        num_classes=1000,
+        use_qknorm=False,
+        use_swiglu=True,
+        use_rope=True,
+        use_rmsnorm=True,
+        wo_shift=False,
+        in_channels=32,
+        learn_sigma=False,
+    )
+    ckpt = torch.load(
+        "/data2/shared/LightningDit/lightningdit-xl-imagenet256-800ep.pt",
+        map_location=lambda storage, loc: storage,
+    )
+    if "ema" in ckpt:
+        ckpt = ckpt["ema"]
+    backbone.load_state_dict(ckpt)
+    del ckpt
+
     model = LinearScaledConsistencyModel(
         backbone,
         p_mean=config.p_mean,
@@ -249,15 +265,7 @@ def reproduce_linear_sct_cifar10():
         _approx_jvp=config.approx_jvp,
         _dt=config.dt,
     )
-    ckpt = {
-        k.replace("velocity_estim", "F0"): v
-        for k, v in load_file(
-            "./test.workspace/rf-cifar10-cond/2025.07.10KST22:00:02/ckpt/1020/model.safetensors"
-        ).items()
-    }
-    ckpt.update(model._ada_weight.state_dict(prefix="model._ada_weight."))
-    _LossDDPWrapper(model).load_state_dict(ckpt)
-    del ckpt
+    vavae = VAVAEWrapper()
 
     # timestamp
     workspace = Path(f"./test.workspace/linear-sct-cifar10-cond/{config.train.stamp}")
@@ -265,9 +273,9 @@ def reproduce_linear_sct_cifar10():
     with open(workspace / "config.json", "w") as f:
         json.dump(asdict(config), f, indent=2, ensure_ascii=False)
     config.train.workspace = workspace.as_posix()
-    trainer = Cifar10Trainer(model, config.train)
+    trainer = Cifar10Trainer(model, config.train, _postproc=vavae.postproc)
     try:
-        trainer.train()
+        trainer.train(sampling_batch_size=128)
     except:
         with open(workspace / "exception", "w") as f:
             f.write(traceback.format_exc())
