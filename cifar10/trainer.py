@@ -17,6 +17,7 @@ from tqdm import tqdm
 from fid import compute_fid_with_model
 from flowmodels.basis import SamplingSupports, ScoreModel, ODEModel
 from flowmodels.utils import EMASupports
+from img_latent_dataset import ImgLatentDataset
 
 
 class Loggable(Protocol):
@@ -84,7 +85,7 @@ class TrainConfig:
     shuffle: bool = True
     num_workers: int = 0
     pin_memory: bool = True
-    dataset_path: str = "./cifar-10-batches-py/.."
+    dataset_path: str = "/data2/shared/UCGM/buffers/data/vavae_f16d32/train_256"
 
     workspace: str = "./workspace"
 
@@ -113,26 +114,19 @@ class Cifar10Trainer:
         model: ScoreModel | ODEModel,
         config: TrainConfig,
         _logger: Loggable = DefaultLogger(),
+        _preproc: Callable[[torch.Tensor], torch.Tensor] | None = None,
+        _postproc: Callable[[torch.Tensor], torch.Tensor] | None = None,
     ):
         assert isinstance(model, nn.Module)
         self.model = model
         self.config = config
 
-        self.trainset = torchvision.datasets.CIFAR10(
+        self.trainset = ImgLatentDataset(
             config.dataset_path,
-            train=True,
-            transform=transforms.Compose(
-                [
-                    transforms.ToTensor(),
-                    # transforms.RandomHorizontalFlip(p=0.5),
-                ]
-            ),
+            latent_norm=True,
+            latent_multiplier=1.0,
         )
-        self.testset = torchvision.datasets.CIFAR10(
-            config.dataset_path,
-            train=False,
-            transform=transforms.ToTensor(),
-        )
+        self.testset = None
 
         self.train_loader = torch.utils.data.DataLoader(
             self.trainset,
@@ -141,12 +135,7 @@ class Cifar10Trainer:
             num_workers=config.num_workers,
             pin_memory=config.pin_memory,
         )
-        self.test_loader = torch.utils.data.DataLoader(
-            self.testset,
-            batch_size=config.batch_size // config.n_gpus // config.n_grad_accum,
-            num_workers=config.num_workers,
-            pin_memory=config.pin_memory,
-        )
+        self.test_loader = None
 
         self.optim = torch.optim.Adam(
             self.model.parameters(),
@@ -163,12 +152,10 @@ class Cifar10Trainer:
         self.train_log = SummaryWriter(self.workspace / "logs" / "train")
         self.test_log = SummaryWriter(self.workspace / "logs" / "test")
         self._logger = _logger
+        self._preproc = _preproc
+        self._postproc = _postproc
 
-    def train(
-        self,
-        _preproc: Callable[[torch.Tensor], torch.Tensor] | None = None,
-        _postproc: Callable[[torch.Tensor], torch.Tensor] | None = None,
-    ):
+    def train(self, sampling_batch_size: int | None = None):
         # validity check
         assert self.config.eval_interval > 0
 
@@ -215,9 +202,9 @@ class Cifar10Trainer:
                 load_model(ema.module, self.config.load_ema_ckpt)
 
         # identity mapping
-        if _preproc is None:
+        if (_preproc := self._preproc) is None:
             _preproc = lambda x: x
-        if _postproc is None:
+        if (_postproc := self._postproc) is None:
             _postproc = lambda x: x
 
         if self.config.n_classes and self.config.uncond_label is None:
@@ -241,7 +228,7 @@ class Cifar10Trainer:
                 for sample, labels in pbar:
                     with accelerator.accumulate(model):
                         loss = model(
-                            _preproc(sample * 2 - 1),
+                            _preproc(sample),
                             label=_preproc_label(labels),
                         )
                         accelerator.backward(loss)
@@ -311,18 +298,18 @@ class Cifar10Trainer:
                         accelerator.device,
                         next(self.model.parameters()).dtype,
                     )
-                    losses = [
-                        self.model.loss(
-                            _preproc(bunch.to(_device, dtype=_dtype) * 2 - 1),
-                            label=_preproc_label(labels.to(_device)),
-                        ).item()
-                        for bunch, labels in tqdm(self.test_loader, leave=False)
-                    ]
-                    self.test_log.add_scalar(f"loss", np.mean(losses), step)
+                    if self.test_loader:
+                        losses = [
+                            self.model.loss(
+                                _preproc(bunch.to(_device, dtype=_dtype)),
+                                label=_preproc_label(labels.to(_device)),
+                            ).item()
+                            for bunch, labels in tqdm(self.test_loader, leave=False)
+                        ]
+                        self.test_log.add_scalar(f"loss", np.mean(losses), step)
 
                     # plot image
-                    _sample, _ = next(iter(self.test_loader))
-                    _, c, h, w = _sample.shape
+                    _, c, h, w = sample.shape
                     _labels = None
                     if self.config.n_classes:
                         _labels = torch.arange(self.config.n_classes, device=_device)
@@ -342,13 +329,13 @@ class Cifar10Trainer:
                         verbose=lambda x: tqdm(x, leave=False),
                     )
                     for i, img in enumerate(sample):
-                        img = ((_postproc(img) + 1) * 0.5).clamp(0.0, 1.0)
+                        img = _postproc(img)
                         self.test_log.add_image(f"sample/{i}", img, step)
 
                         for j, traj in list(enumerate(trajectories))[
                             :: -(-len(trajectories) // 4)
                         ]:
-                            point = ((_postproc(traj[i]) + 1) * 0.5).clamp(0.0, 1.0)
+                            point = _postproc(traj[i])
                             self.test_log.add_image(f"sample/{i}/traj@{j}", point, step)
 
                     fid = compute_fid_with_model(
@@ -356,12 +343,11 @@ class Cifar10Trainer:
                         steps=self.config.fid_steps,
                         num_samples=10000,
                         n_classes=self.config.n_classes,
-                        inception_batch_size=self.test_loader.batch_size,  # pyright: ignore
-                        sampling_batch_size=self.test_loader.batch_size,  # pyright: ignore
+                        inception_batch_size=sampling_batch_size or self.train_loader.batch_size,  # pyright: ignore
+                        sampling_batch_size=sampling_batch_size or self.train_loader.batch_size,  # pyright: ignore
+                        shape=[c, h, w],
                         device=accelerator.device,
-                        scaler=lambda x: (
-                            ((_postproc(x) + 1) * 0.5).clamp(0.0, 1.0) * 255
-                        ).to(torch.uint8),
+                        scaler=lambda x: (_postproc(x) * 255).to(torch.uint8),
                     )
                     model.train()
                     self.test_log.add_scalar("metric/fid10k", fid, step)
