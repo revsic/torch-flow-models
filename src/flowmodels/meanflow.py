@@ -19,6 +19,8 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         p_mean: float = -0.4,
         p_std: float = 1.0,
         p: float = 1.0,
+        tangent_warmup: int | None = None,
+        _warmup_max: float = 1.0,
         _approx_jvp: bool = True,
         _dt: float = 0.005,
     ):
@@ -29,6 +31,9 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         self.p = p
         # debug purpose
         self._debug_from_loss = {}
+        self._tangent_warmup = tangent_warmup
+        self.register_buffer("_steps", torch.tensor(0, requires_grad=False))
+        self._warmup_max = _warmup_max
         self._approx_jvp = _approx_jvp
         self._dt = _dt
 
@@ -121,7 +126,13 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         br = r.view([batch_size] + [1] * (sample.dim() - 1))
         # [B, ...]
         x_t = (1 - bt) * sample + bt * prior
-        v_t = self.forward(x_t, t, t, label=label)
+        # warmup scaler
+        r = 1.0
+        if self._tangent_warmup:
+            self._steps.add_(1)
+            r = (self._steps / self._tangent_warmup).clamp_max(self._warmup_max)
+        v = self.forward(x_t, t, t, label=label)
+        v_t = r * v + (1 - r) * (prior - sample)
         if self._approx_jvp:
             # shortcut
             dt = self._dt
@@ -145,7 +156,7 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         # [B]
         rdim = [i + 1 for i in range(u.dim() - 1)]
         meanid = (u - u_tgt.detach()).square().mean(dim=rdim)
-        v_loss =  (v_t - (sample - prior)).square().mean(dim=rdim)
+        v_loss =  (v - (sample - prior)).square().mean(dim=rdim)
         # [B]
         loss = meanid + v_loss
         adp_wt = (loss + 0.01).detach() ** self.p
