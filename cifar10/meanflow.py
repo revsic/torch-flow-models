@@ -14,9 +14,8 @@ from trainer import Cifar10Trainer, TrainConfig
 class Config:
     p_mean: float = -2.0
     p_std: float = 2.0
-    r_mask: float = 0.75
     p: float = 1.0
-    approx_jvp: bool = True
+    approx_jvp: bool = False
     dt: float = 0.005
 
     model: ModelConfig = field(default_factory=ModelConfig)  # pyright: ignore
@@ -43,7 +42,7 @@ def reproduce_sct_cifar10():
         ),
         train=TrainConfig(
             n_gpus=1,
-            n_grad_accum=12,
+            n_grad_accum=32,
             mixed_precision="no",
             batch_size=1024,
             n_classes=10 + 1,
@@ -57,6 +56,7 @@ def reproduce_sct_cifar10():
             label_dropout=0.1,
             uncond_label=10,
             fid_steps=2,
+            eval_interval=40,
         ),
     )
     # model definition
@@ -65,7 +65,6 @@ def reproduce_sct_cifar10():
         backbone,
         config.p_mean,
         config.p_std,
-        config.r_mask,
         config.p,
         config.approx_jvp,
         config.dt
