@@ -15,6 +15,8 @@ class Config:
     p_mean: float = -2.0
     p_std: float = 2.0
     p: float = 1.0
+    tangent_warmup: int = 10000
+    warmup_max: float = 0.99
     approx_jvp: bool = True
     dt: float = 0.005
 
@@ -65,6 +67,8 @@ def reproduce_sct_cifar10():
         config.p_mean,
         config.p_std,
         config.p,
+        config.tangent_warmup,
+        config.warmup_max,
         config.approx_jvp,
         config.dt
     )
