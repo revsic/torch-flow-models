@@ -44,8 +44,8 @@ def reproduce_sct_cifar10():
         train=TrainConfig(
             n_gpus=1,
             n_grad_accum=3,
-            mixed_precision="no",
-            batch_size=768,
+            mixed_precision="bf16",
+            batch_size=1024,
             n_classes=10 + 1,
             lr=0.0001,
             beta1=0.9,
@@ -78,6 +78,7 @@ def reproduce_sct_cifar10():
     load_model(
         _LossDDPWrapper(model),
         "./test.workspace/trigflow-cifar10-cond/2025.07.11KST10:39:03/ckpt/3264/model.safetensors",
+        strict=False,
     )
 
     # timestamp

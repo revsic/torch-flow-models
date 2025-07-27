@@ -72,8 +72,9 @@ class ScaledContinuousCM(
         super().__init__()
         self.F0 = module
         self.scheduler = scheduler
-        self._tangent_warmup, self._steps = tangent_warmup, 0
+        self._tangent_warmup = tangent_warmup
         self._warmup_max = _warmup_max
+        self.register_buffer("_steps", torch.tensor(0, requires_grad=False))
         self._ada_weight = _AdaptiveWeights(_ada_weight_size)
         # debug purpose
         self._debug_from_loss = {}
@@ -221,8 +222,8 @@ class ScaledContinuousCM(
         # warmup scaler
         r = 1.0
         if self._tangent_warmup:
-            r = min(self._steps / self._tangent_warmup, self._warmup_max)
-            self._steps += 1
+            self._steps.add_(1)
+            r = (self._steps / self._tangent_warmup).clamp_max(self._warmup_max)
         # stop grad
         F = estim.detach()
         # df/dt = -t.cos() * (sigma_d * F(x_t/sigma_d, t) - dx_t/dt) - t.sin() * (x_t + sigma_d * dF/dt)
