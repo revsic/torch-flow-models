@@ -127,12 +127,12 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         # [B, ...]
         x_t = (1 - bt) * sample + bt * prior
         # warmup scaler
-        r = 1.0
+        w = 1.0
         if self._tangent_warmup:
             self._steps.add_(1)
-            r = (self._steps / self._tangent_warmup).clamp_max(self._warmup_max)
+            w = (self._steps / self._tangent_warmup).clamp_max(self._warmup_max)
         v = self.forward(x_t, t, t, label=label)
-        v_t = r * v + (1 - r) * (prior - sample)
+        v_t = w * v + (1 - w) * (prior - sample)
         if self._approx_jvp:
             # shortcut
             dt = self._dt
