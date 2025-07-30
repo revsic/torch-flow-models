@@ -145,7 +145,7 @@ class MeanFlow(nn.Module, ODEModel, PredictionSupports, SamplingSupports):
         # [B]
         rdim = [i + 1 for i in range(u.dim() - 1)]
         meanid = (u - u_tgt.detach()).square().mean(dim=rdim)
-        v_loss =  (v_t - (sample - prior)).square().mean(dim=rdim)
+        v_loss =  (v_t - (prior - sample)).square().mean(dim=rdim)
         # [B]
         loss = meanid + v_loss
         adp_wt = (loss + 0.01).detach() ** self.p
