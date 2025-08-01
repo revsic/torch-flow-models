@@ -238,6 +238,7 @@ def reproduce_linear_sct_cifar10():
             label_dropout=0.1,
             uncond_label=1000,
             fid_steps=2,
+            eval_interval=80,
         ),
     )
     # model definition
