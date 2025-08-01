@@ -42,7 +42,7 @@ def reproduce_sct_cifar10():
         ),
         train=TrainConfig(
             n_gpus=1,
-            n_grad_accum=32,
+            n_grad_accum=12,
             mixed_precision="no",
             batch_size=1024,
             n_classes=10 + 1,
