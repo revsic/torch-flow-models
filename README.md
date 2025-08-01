@@ -1,4 +1,4 @@
-# torch-flow-models
+# flowmodels
 
 PyTorch-implementations of Flow Models for toy data
 
@@ -7,8 +7,8 @@ PyTorch-implementations of Flow Models for toy data
 Install the package.
 
 ```bash
-git clone https://github.com/revsic/torch-flow-models
-cd torch-flow-models && pip install -e .
+git clone https://github.com/revsic/flowmodels
+cd flowmodels && pip install -e .
 ```
 
 Here is the sample code[[samples/ddpm.ipynb](./samples/ddpm.ipynb)]:
