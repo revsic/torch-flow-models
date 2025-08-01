@@ -27,6 +27,7 @@ class LinearScaledConsistencyModel(
         p_mean: float = -1.0,
         p_std: float = 1.4,
         tangent_warmup: int | None = None,
+        _warmup_max: float = 1.0,
         _ada_weight_size: int = 128,
         _approx_jvp: bool = True,
         _dt: float = 0.005,
@@ -35,7 +36,9 @@ class LinearScaledConsistencyModel(
         self.F0 = module
         self.p_mean = p_mean
         self.p_std = p_std
-        self._tangent_warmup, self._steps = tangent_warmup, 0
+        self._tangent_warmup = tangent_warmup
+        self._warmup_max = _warmup_max
+        self.register_buffer("_steps", torch.tensor(0, requires_grad=False))
         self._ada_weight = _AdaptiveWeights(_ada_weight_size)
         self.solver = VanillaEulerSolver()
         # debug purpose
@@ -135,8 +138,8 @@ class LinearScaledConsistencyModel(
         # warmup scaler
         r = 1.0
         if self._tangent_warmup:
-            r = min(self._steps / self._tangent_warmup, 1.0)
-            self._steps += 1
+            self._steps.add_(1)
+            r = (self._steps / self._tangent_warmup).clamp_max(self._warmup_max)
         # stop grad
         F = estim.detach()
         # df/dt = (x_1 - x_0) - F(x_t, t) + (1 - t) * dF/dt
@@ -208,6 +211,7 @@ class Config:
     p_mean: float = -1.0
     p_std: float = 1.4
     tangent_warmup: int = 10000
+    warmup_max: float = 1.0
     approx_jvp: bool = True
     dt: float = 0.005
 
@@ -262,6 +266,7 @@ def reproduce_linear_sct_cifar10():
         p_mean=config.p_mean,
         p_std=config.p_std,
         tangent_warmup=config.tangent_warmup,
+        _warmup_max=config.warmup_max,
         _approx_jvp=config.approx_jvp,
         _dt=config.dt,
     )
